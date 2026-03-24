@@ -17,4 +17,5 @@ pub struct Ticket {
     pub owner: Address,
     pub issued_at: u64,
     pub status: TicketStatus,
+    pub is_transferable: bool,
 }

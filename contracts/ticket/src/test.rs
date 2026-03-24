@@ -12,6 +12,27 @@ fn setup_test_ticket(
     ticket_id: u64,
     status: TicketStatus,
 ) {
+    setup_test_ticket_with_transferable(
+        env,
+        contract_id,
+        organizer,
+        owner,
+        ticket_id,
+        status,
+        true,
+    );
+}
+
+// Helper function to create a ticket with custom transferable setting
+fn setup_test_ticket_with_transferable(
+    env: &Env,
+    contract_id: &Address,
+    organizer: &Address,
+    owner: &Address,
+    ticket_id: u64,
+    status: TicketStatus,
+    is_transferable: bool,
+) {
     let ticket = Ticket {
         ticket_id,
         event_id: Symbol::new(env, "event_1"),
@@ -19,6 +40,7 @@ fn setup_test_ticket(
         owner: owner.clone(),
         issued_at: 123456,
         status,
+        is_transferable,
     };
 
     env.as_contract(contract_id, || {
@@ -318,4 +340,66 @@ fn test_use_ticket_cancelled() {
 
     // Attempt to use cancelled ticket
     client.use_ticket(&organizer, &ticket_id);
+}
+
+#[test]
+#[should_panic(expected = "HostError: Error(Contract, #11)")]
+fn test_transfer_disabled_ticket() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(TicketContract, ());
+    let client = TicketContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let organizer = Address::generate(&env);
+
+    // Setup ticket with is_transferable = false
+    setup_test_ticket_with_transferable(
+        &env,
+        &contract_id,
+        &organizer,
+        &alice,
+        1,
+        TicketStatus::Valid,
+        false,
+    );
+
+    // Alice tries to transfer a non-transferable ticket - should fail with TicketNotTransferable (11)
+    client.transfer_ticket(&alice, &bob, &1);
+}
+
+#[test]
+fn test_transfer_enabled_ticket() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(TicketContract, ());
+    let client = TicketContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let organizer = Address::generate(&env);
+
+    // Setup ticket with is_transferable = true (default)
+    setup_test_ticket(
+        &env,
+        &contract_id,
+        &organizer,
+        &alice,
+        1,
+        TicketStatus::Valid,
+    );
+
+    // Alice transfers to Bob - should succeed
+    client.transfer_ticket(&alice, &bob, &1);
+
+    // Verify Bob is now the owner
+    let bob_tickets = client.get_tickets_by_owner(&bob);
+    assert_eq!(bob_tickets, vec![&env, 1]);
+
+    // Verify Alice no longer owns the ticket
+    let alice_tickets = client.get_tickets_by_owner(&alice);
+    assert_eq!(alice_tickets, vec![&env]);
 }

@@ -32,6 +32,7 @@ impl TicketContract {
             owner: owner.clone(),
             issued_at: env.ledger().timestamp(),
             status: TicketStatus::Valid,
+            is_transferable: true,
         };
 
         env.storage()
@@ -84,6 +85,10 @@ impl TicketContract {
 
         if ticket.owner != from {
             return Err(TicketError::Unauthorized);
+        }
+
+        if !ticket.is_transferable {
+            return Err(TicketError::TicketNotTransferable);
         }
 
         if ticket.status != TicketStatus::Valid {
