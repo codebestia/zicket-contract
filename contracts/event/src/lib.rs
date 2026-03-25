@@ -80,6 +80,7 @@ impl EventContract {
                 price: tier_param.price,
                 capacity: tier_param.capacity,
                 sold: 0,
+                reserved: 0,
             });
         }
 
@@ -201,6 +202,7 @@ impl EventContract {
             price,
             capacity,
             sold: 0,
+            reserved: 0,
         };
 
         event.tiers.push_back(new_tier.clone());
@@ -352,6 +354,120 @@ impl EventContract {
         Ok(())
     }
 
+    /// Reserve a ticket for a specific tier. The reservation is valid for 15 minutes.
+    pub fn reserve_ticket(
+        env: Env,
+        attendee: Address,
+        event_id: Symbol,
+        tier_id: u32,
+    ) -> Result<(), EventError> {
+        attendee.require_auth();
+
+        let mut event = storage::get_event(&env, &event_id)?;
+
+        if event.status != EventStatus::Active {
+            return Err(EventError::EventNotActive);
+        }
+
+        if storage::is_registered(&env, &event_id, &attendee) {
+            return Err(EventError::AlreadyRegistered);
+        }
+
+        // Check if user already has an active reservation
+        if storage::has_reservation(&env, &event_id, &attendee) {
+            let reservation = storage::get_reservation(&env, &event_id, &attendee)?;
+            if reservation.expires_at > env.ledger().timestamp() {
+                // Already has an active reservation
+                return Ok(());
+            } else {
+                // Reservation expired, we'll replace it.
+                // First decrement the old reserved count.
+                let mut found = false;
+                for i in 0..event.tiers.len() {
+                    let mut tier = event.tiers.get(i).unwrap();
+                    if tier.tier_id == reservation.tier_id {
+                        if tier.reserved > 0 {
+                            tier.reserved -= 1;
+                        }
+                        event.tiers.set(i, tier);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(EventError::TierNotFound);
+                }
+            }
+        }
+
+        let mut tier_index = None;
+        for i in 0..event.tiers.len() {
+            let tier = event.tiers.get(i).unwrap();
+            if tier.tier_id == tier_id {
+                tier_index = Some(i);
+                break;
+            }
+        }
+
+        let index = tier_index.ok_or(EventError::TierNotFound)?;
+        let mut tier = event.tiers.get(index).unwrap();
+
+        if tier.sold + tier.reserved >= tier.capacity {
+            return Err(EventError::TierSoldOut);
+        }
+
+        // Create reservation
+        let expires_at = env.ledger().timestamp() + 900; // 15 minutes
+        let reservation = Reservation {
+            tier_id,
+            expires_at,
+        };
+
+        storage::save_reservation(&env, &event_id, &attendee, &reservation);
+
+        tier.reserved += 1;
+        event.tiers.set(index, tier);
+        storage::save_event(&env, &event_id, &event);
+
+        Ok(())
+    }
+
+    /// Release an expired reservation.
+    pub fn release_expired_reservation(
+        env: Env,
+        event_id: Symbol,
+        attendee: Address,
+    ) -> Result<(), EventError> {
+        let reservation = storage::get_reservation(&env, &event_id, &attendee)?;
+
+        if reservation.expires_at > env.ledger().timestamp() {
+            return Err(EventError::InvalidInput); // Not expired yet
+        }
+
+        let mut event = storage::get_event(&env, &event_id)?;
+        let mut found = false;
+        for i in 0..event.tiers.len() {
+            let mut tier = event.tiers.get(i).unwrap();
+            if tier.tier_id == reservation.tier_id {
+                if tier.reserved > 0 {
+                    tier.reserved -= 1;
+                }
+                event.tiers.set(i, tier);
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return Err(EventError::TierNotFound);
+        }
+
+        storage::remove_reservation(&env, &event_id, &attendee);
+        storage::save_event(&env, &event_id, &event);
+
+        Ok(())
+    }
+
     pub fn register_for_event(
         env: Env,
         attendee: Address,
@@ -366,28 +482,45 @@ impl EventContract {
             return Err(EventError::EventNotActive);
         }
 
+        if storage::is_registered(&env, &event_id, &attendee) {
+            return Err(EventError::AlreadyRegistered);
+        }
+
+        let has_res = storage::has_reservation(&env, &event_id, &attendee);
         let mut tier_index = None;
-        for i in 0..event.tiers.len() {
-            let tier = event.tiers.get(i).unwrap();
-            if tier.tier_id == tier_id {
-                tier_index = Some(i);
-                break;
+
+        if has_res {
+            let reservation = storage::get_reservation(&env, &event_id, &attendee)?;
+            if reservation.expires_at < env.ledger().timestamp() {
+                return Err(EventError::ReservationExpired);
+            }
+            if reservation.tier_id != tier_id {
+                return Err(EventError::InvalidInput); // Trying to pay for a different tier than reserved
+            }
+
+            for i in 0..event.tiers.len() {
+                let tier = event.tiers.get(i).unwrap();
+                if tier.tier_id == tier_id {
+                    tier_index = Some(i);
+                    break;
+                }
+            }
+        } else {
+            // Instant purchase without reservation (if capacity allows)
+            for i in 0..event.tiers.len() {
+                let tier = event.tiers.get(i).unwrap();
+                if tier.tier_id == tier_id {
+                    tier_index = Some(i);
+                    break;
+                }
             }
         }
 
-        if tier_index.is_none() {
-            return Err(EventError::TierNotFound);
-        }
-
-        let index = tier_index.unwrap();
+        let index = tier_index.ok_or(EventError::TierNotFound)?;
         let mut tier = event.tiers.get(index).unwrap();
 
-        if tier.sold >= tier.capacity {
+        if !has_res && tier.sold + tier.reserved >= tier.capacity {
             return Err(EventError::TierSoldOut);
-        }
-
-        if storage::is_registered(&env, &event_id, &attendee) {
-            return Err(EventError::AlreadyRegistered);
         }
 
         let payments_contract = storage::get_payments_contract(&env)?;
@@ -395,15 +528,20 @@ impl EventContract {
 
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
-            // This call must succeed before minting and local registration persist.
             payments_client.pay_for_ticket(&attendee, &event_id, &tier.price);
         }
 
         let ticket_client = TicketContractClient::new(&env, &ticket_contract);
-        // Minting after payment keeps the entire flow atomic in one transaction.
         ticket_client.mint_ticket(&event.event_id, &event.organizer, &attendee);
 
         storage::save_registration(&env, &event_id, &attendee);
+
+        if has_res {
+            if tier.reserved > 0 {
+                tier.reserved -= 1;
+            }
+            storage::remove_reservation(&env, &event_id, &attendee);
+        }
 
         tier.sold += 1;
         event.tiers.set(index, tier.clone());
@@ -428,6 +566,46 @@ impl EventContract {
     ) -> Result<soroban_sdk::Vec<Address>, EventError> {
         storage::get_event(&env, &event_id)?;
         Ok(storage::get_attendees(&env, &event_id))
+    }
+
+    /// Withdraw revenue for a completed event. Only the organizer can do this.
+    pub fn withdraw_revenue(
+        env: Env,
+        organizer: Address,
+        event_id: Symbol,
+    ) -> Result<(), EventError> {
+        organizer.require_auth();
+
+        let event = storage::get_event(&env, &event_id)?;
+
+        // Verify caller is the event organizer
+        if event.organizer != organizer {
+            return Err(EventError::Unauthorized);
+        }
+
+        // Revenue can only be withdrawn for completed events (optional, but safer)
+        if event.status != EventStatus::Completed {
+            return Err(EventError::InvalidStatusTransition);
+        }
+
+        let payments_contract = storage::get_payments_contract(&env)?;
+        let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+
+        // This calls the payment contract to transfer funds and record the history
+        payments_client.withdraw_revenue(&event_id, &organizer);
+
+        Ok(())
+    }
+
+    /// Get all withdrawal history for an event.
+    pub fn get_withdrawal_history(
+        env: Env,
+        event_id: Symbol,
+    ) -> Result<soroban_sdk::Vec<payments_contract::WithdrawalRecord>, EventError> {
+        storage::get_event(&env, &event_id)?;
+        let payments_contract = storage::get_payments_contract(&env)?;
+        let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+        Ok(payments_client.get_withdrawal_history(&event_id))
     }
 }
 

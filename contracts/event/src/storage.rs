@@ -7,6 +7,7 @@ pub enum DataKey {
     Event(Symbol),
     Registration(Symbol, Address),
     EventAttendees(Symbol),
+    Reservation(Symbol, Address),
     Admin,
     TicketContract,
     PaymentsContract,
@@ -125,4 +126,39 @@ pub fn get_payments_contract(env: &Env) -> Result<Address, EventError> {
 pub fn has_linked_contracts(env: &Env) -> bool {
     env.storage().persistent().has(&DataKey::TicketContract)
         && env.storage().persistent().has(&DataKey::PaymentsContract)
+}
+
+pub fn save_reservation(
+    env: &Env,
+    event_id: &Symbol,
+    attendee: &Address,
+    reservation: &crate::types::Reservation,
+) {
+    let key = DataKey::Reservation(event_id.clone(), attendee.clone());
+    env.storage().persistent().set(&key, reservation);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60, 60 * 60 * 2);
+}
+
+pub fn get_reservation(
+    env: &Env,
+    event_id: &Symbol,
+    attendee: &Address,
+) -> Result<crate::types::Reservation, EventError> {
+    let key = DataKey::Reservation(event_id.clone(), attendee.clone());
+    env.storage()
+        .persistent()
+        .get(&key)
+        .ok_or(EventError::ReservationNotFound)
+}
+
+pub fn remove_reservation(env: &Env, event_id: &Symbol, attendee: &Address) {
+    let key = DataKey::Reservation(event_id.clone(), attendee.clone());
+    env.storage().persistent().remove(&key);
+}
+
+pub fn has_reservation(env: &Env, event_id: &Symbol, attendee: &Address) -> bool {
+    let key = DataKey::Reservation(event_id.clone(), attendee.clone());
+    env.storage().persistent().has(&key)
 }

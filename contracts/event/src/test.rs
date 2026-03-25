@@ -790,3 +790,146 @@ fn fund_attendee(
     asset_admin.mint(token_admin, &amount);
     token_client.transfer(token_admin, attendee, &amount);
 }
+
+// ============================================================
+// Reservation Tests
+// ============================================================
+
+#[test]
+fn test_reserve_ticket_success() {
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let attendee = Address::generate(&env);
+
+    let (_payments_contract, token, token_admin) =
+        setup_registration_contracts(&env, &client, &organizer);
+    fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
+
+    let event_id = setup_event(&env, &client, &organizer);
+    client.update_event_status(&organizer, &event_id, &EventStatus::Active);
+
+    client.reserve_ticket(&attendee, &event_id, &0);
+
+    let event = client.get_event(&event_id);
+    let tier = event.tiers.get(0).unwrap();
+    assert_eq!(tier.reserved, 1);
+    assert_eq!(tier.sold, 0);
+}
+
+#[test]
+fn test_reserve_and_pay_success() {
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let attendee = Address::generate(&env);
+
+    let (_payments_contract, token, token_admin) =
+        setup_registration_contracts(&env, &client, &organizer);
+    fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
+
+    let event_id = setup_event(&env, &client, &organizer);
+    client.update_event_status(&organizer, &event_id, &EventStatus::Active);
+
+    // 1. Reserve
+    client.reserve_ticket(&attendee, &event_id, &0);
+
+    // 2. Pay
+    client.register_for_event(&attendee, &event_id, &0);
+
+    let event = client.get_event(&event_id);
+    let tier = event.tiers.get(0).unwrap();
+    assert_eq!(tier.reserved, 0);
+    assert_eq!(tier.sold, 1);
+
+    let registered = client.is_registered(&event_id, &attendee);
+    assert!(registered);
+}
+
+#[test]
+fn test_reserve_expire_and_available_again() {
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let attendee = Address::generate(&env);
+
+    let event_id = Symbol::new(&env, "event_limit");
+    let params = CreateEventParams {
+        organizer: organizer.clone(),
+        event_id: event_id.clone(),
+        name: String::from_str(&env, "Limit Event"),
+        description: String::from_str(&env, "Desc"),
+        venue: String::from_str(&env, "Venue"),
+        event_date: env.ledger().timestamp() + 86_401,
+        initial_tiers: soroban_sdk::vec![
+            &env,
+            TicketTierParams {
+                name: String::from_str(&env, "VIP"),
+                price: 100,
+                capacity: 1, // Only 1 spot
+            },
+        ],
+    };
+    client.create_event(&params);
+    client.update_event_status(&organizer, &event_id, &EventStatus::Active);
+
+    // 1. Reserve
+    client.reserve_ticket(&attendee, &event_id, &0);
+
+    let event = client.get_event(&event_id);
+    assert_eq!(event.tiers.get(0).unwrap().reserved, 1);
+
+    // 2. Try to reserve again by another user -> should fail (Sold out/Reserved out)
+    let attendee_2 = Address::generate(&env);
+    let result = client.try_reserve_ticket(&attendee_2, &event_id, &0);
+    assert_eq!(result.err(), Some(Ok(EventError::TierSoldOut)));
+
+    // 3. Move time forward 16 minutes (beyond 15 min expiry)
+    env.ledger().with_mut(|li| {
+        li.timestamp += 1000;
+    });
+
+    // 4. Release expired
+    client.release_expired_reservation(&event_id, &attendee);
+
+    let event_after = client.get_event(&event_id);
+    assert_eq!(event_after.tiers.get(0).unwrap().reserved, 0);
+
+    // 5. Now attendee_2 can reserve
+    client.reserve_ticket(&attendee_2, &event_id, &0);
+    assert_eq!(
+        client.get_event(&event_id).tiers.get(0).unwrap().reserved,
+        1
+    );
+}
+
+#[test]
+fn test_pay_with_expired_reservation_fails() {
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let attendee = Address::generate(&env);
+
+    let (_payments_contract, token, token_admin) =
+        setup_registration_contracts(&env, &client, &organizer);
+    fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
+
+    let event_id = setup_event(&env, &client, &organizer);
+    client.update_event_status(&organizer, &event_id, &EventStatus::Active);
+
+    // 1. Reserve
+    client.reserve_ticket(&attendee, &event_id, &0);
+
+    // 2. Move time forward
+    env.ledger().with_mut(|li| {
+        li.timestamp += 1000;
+    });
+
+    // 3. Try to pay -> should fail
+    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    assert_eq!(result.err(), Some(Ok(EventError::ReservationExpired)));
+}

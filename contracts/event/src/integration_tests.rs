@@ -207,3 +207,58 @@ fn test_cancel_event_triggers_refunds() {
     assert_eq!(token_client.balance(&payments_contract_id), 0);
     assert_eq!(payments_client.get_event_revenue(&event_id), 0);
 }
+
+#[test]
+fn test_withdraw_revenue_integration() {
+    let env = setup_env();
+    env.mock_all_auths();
+
+    let organizer = Address::generate(&env);
+    let attendee = Address::generate(&env);
+
+    let event_contract_id = env.register(EventContract, ());
+    let event_client = EventContractClient::new(&env, &event_contract_id);
+
+    let ticket_contract_id = env.register(ticket_contract::TicketContract, ());
+    let payments_contract_id = env.register(payments_contract::PaymentsContract, ());
+    let payments_client =
+        payments_contract::PaymentsContractClient::new(&env, &payments_contract_id);
+
+    let token_admin = Address::generate(&env);
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
+    let token_client = token::Client::new(&env, &token_address);
+
+    payments_client.initialize(&organizer, &token_address);
+    event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
+
+    let price = 100_000_000i128;
+    token_admin_client.mint(&token_admin, &price);
+    token_client.transfer(&token_admin, &attendee, &price);
+
+    let event_id = Symbol::new(&env, "evt_withdraw_1");
+    create_active_event(&env, &event_client, &organizer, event_id.clone());
+
+    // Register attendee
+    event_client.register_for_event(&attendee, &event_id, &0);
+    assert_eq!(token_client.balance(&payments_contract_id), price);
+
+    // Complete event to allow withdrawal
+    event_client.update_event_status(&organizer, &event_id, &EventStatus::Completed);
+
+    // Withdraw revenue
+    event_client.withdraw_revenue(&organizer, &event_id);
+
+    // Verify funds moved
+    assert_eq!(token_client.balance(&organizer), price);
+    assert_eq!(token_client.balance(&payments_contract_id), 0);
+
+    // Verify history
+    let history = event_client.get_withdrawal_history(&event_id);
+    assert_eq!(history.len(), 1);
+    let record = history.get(0).unwrap();
+    assert_eq!(record.amount, price);
+    assert_eq!(record.organizer, organizer);
+}

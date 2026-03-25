@@ -12,6 +12,7 @@ pub enum DataKey {
     EventRevenue(Symbol),
     OwnerTickets(Address),
     PayerPayments(Address),
+    WithdrawalHistory(Symbol),
     NextPaymentId,
     NextTicketId,
 }
@@ -238,4 +239,35 @@ pub fn update_payment(env: &Env, payment: &PaymentRecord) -> Result<(), PaymentE
     }
     save_payment(env, payment);
     Ok(())
+}
+
+pub fn add_withdrawal_record(
+    env: &Env,
+    event_id: &Symbol,
+    record: &crate::types::WithdrawalRecord,
+) {
+    let key = DataKey::WithdrawalHistory(event_id.clone());
+    let mut history: Vec<crate::types::WithdrawalRecord> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    history.push_back(record.clone());
+    env.storage().persistent().set(&key, &history);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+pub fn get_withdrawal_history(env: &Env, event_id: &Symbol) -> Vec<crate::types::WithdrawalRecord> {
+    let key = DataKey::WithdrawalHistory(event_id.clone());
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn reset_event_revenue(env: &Env, event_id: &Symbol) {
+    let key = DataKey::EventRevenue(event_id.clone());
+    env.storage().persistent().set(&key, &0i128);
 }

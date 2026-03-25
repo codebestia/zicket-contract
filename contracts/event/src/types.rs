@@ -17,6 +17,7 @@ pub struct TicketTier {
     pub price: i128,
     pub capacity: u32,
     pub sold: u32,
+    pub reserved: u32,
 }
 
 #[contracttype]
@@ -62,4 +63,11 @@ pub struct UpdateEventParams {
     pub description: Option<String>,
     pub venue: Option<String>,
     pub event_date: Option<u64>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Reservation {
+    pub tier_id: u32,
+    pub expires_at: u64,
 }
