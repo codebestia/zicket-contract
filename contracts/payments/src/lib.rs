@@ -187,6 +187,42 @@ impl PaymentsContract {
     pub fn get_event_payments(env: Env, event_id: Symbol) -> soroban_sdk::Vec<u64> {
         storage::get_event_payments(&env, &event_id)
     }
+
+    /// Withdraw revenue for an event.
+    pub fn withdraw_revenue(env: Env, event_id: Symbol, to: Address) -> Result<(), PaymentError> {
+        let admin = storage::get_admin(&env)?;
+        admin.require_auth();
+
+        let revenue = storage::get_event_revenue(&env, &event_id);
+        if revenue <= 0 {
+            return Err(PaymentError::InvalidAmount);
+        }
+
+        let token_address = storage::get_accepted_token(&env)?;
+        let token_client = token::Client::new(&env, &token_address);
+        token_client.transfer(&env.current_contract_address(), &to, &revenue);
+
+        // Update revenue tracking
+        storage::reset_event_revenue(&env, &event_id);
+
+        // Record withdrawal history
+        let record = WithdrawalRecord {
+            amount: revenue,
+            timestamp: env.ledger().timestamp(),
+            organizer: to.clone(),
+        };
+        storage::add_withdrawal_record(&env, &event_id, &record);
+
+        Ok(())
+    }
+
+    /// Get all withdrawal history for an event.
+    pub fn get_withdrawal_history(
+        env: Env,
+        event_id: Symbol,
+    ) -> soroban_sdk::Vec<WithdrawalRecord> {
+        storage::get_withdrawal_history(&env, &event_id)
+    }
 }
 
 #[cfg(test)]

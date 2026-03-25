@@ -567,6 +567,46 @@ impl EventContract {
         storage::get_event(&env, &event_id)?;
         Ok(storage::get_attendees(&env, &event_id))
     }
+
+    /// Withdraw revenue for a completed event. Only the organizer can do this.
+    pub fn withdraw_revenue(
+        env: Env,
+        organizer: Address,
+        event_id: Symbol,
+    ) -> Result<(), EventError> {
+        organizer.require_auth();
+
+        let event = storage::get_event(&env, &event_id)?;
+
+        // Verify caller is the event organizer
+        if event.organizer != organizer {
+            return Err(EventError::Unauthorized);
+        }
+
+        // Revenue can only be withdrawn for completed events (optional, but safer)
+        if event.status != EventStatus::Completed {
+            return Err(EventError::InvalidStatusTransition);
+        }
+
+        let payments_contract = storage::get_payments_contract(&env)?;
+        let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+
+        // This calls the payment contract to transfer funds and record the history
+        payments_client.withdraw_revenue(&event_id, &organizer);
+
+        Ok(())
+    }
+
+    /// Get all withdrawal history for an event.
+    pub fn get_withdrawal_history(
+        env: Env,
+        event_id: Symbol,
+    ) -> Result<soroban_sdk::Vec<payments_contract::WithdrawalRecord>, EventError> {
+        storage::get_event(&env, &event_id)?;
+        let payments_contract = storage::get_payments_contract(&env)?;
+        let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+        Ok(payments_client.get_withdrawal_history(&event_id))
+    }
 }
 
 #[cfg(test)]

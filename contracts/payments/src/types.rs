@@ -28,3 +28,10 @@ pub struct Ticket {
     pub owner: Address,
     pub payment_id: u64,
 }
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WithdrawalRecord {
+    pub amount: i128,
+    pub timestamp: u64,
+    pub organizer: Address,
+}
