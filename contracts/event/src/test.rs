@@ -595,7 +595,7 @@ fn test_register_for_event_happy_path() {
     let event_id = setup_event(&env, &client, &organizer);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee, &event_id, &0);
+    client.register_for_event(&attendee, &event_id, &0, &None);
 
     let event = client.get_event(&event_id);
     assert_eq!(event.tiers.get(0).unwrap().sold, 1);
@@ -618,7 +618,7 @@ fn test_register_for_event_not_active_fails() {
 
     let event_id = setup_event(&env, &client, &organizer);
 
-    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    let result = client.try_register_for_event(&attendee, &event_id, &0, &None);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
 }
 
@@ -656,8 +656,8 @@ fn test_register_for_event_sold_out_fails() {
     client.create_event(&params);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee1, &event_id, &0);
-    let result = client.try_register_for_event(&attendee2, &event_id, &0);
+    client.register_for_event(&attendee1, &event_id, &0, &None);
+    let result = client.try_register_for_event(&attendee2, &event_id, &0, &None);
     assert_eq!(result.err(), Some(Ok(EventError::TierSoldOut)));
 }
 
@@ -676,8 +676,8 @@ fn test_register_for_event_duplicate_fails() {
     let event_id = setup_event(&env, &client, &organizer);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee, &event_id, &0);
-    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    client.register_for_event(&attendee, &event_id, &0, &None);
+    let result = client.try_register_for_event(&attendee, &event_id, &0, &None);
     assert_eq!(result.err(), Some(Ok(EventError::AlreadyRegistered)));
 }
 
@@ -696,7 +696,7 @@ fn test_register_for_event_cancelled_fails() {
     let event_id = setup_event(&env, &client, &organizer);
     client.cancel_event(&organizer, &event_id);
 
-    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    let result = client.try_register_for_event(&attendee, &event_id, &0, &None);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
 }
 
@@ -717,8 +717,8 @@ fn test_get_attendees() {
     let event_id = setup_event(&env, &client, &organizer);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee1, &event_id, &0);
-    client.register_for_event(&attendee2, &event_id, &0);
+    client.register_for_event(&attendee1, &event_id, &0, &None);
+    client.register_for_event(&attendee2, &event_id, &0, &None);
 
     let attendees = client.get_attendees(&event_id);
     assert_eq!(attendees.len(), 2);

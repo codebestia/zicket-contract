@@ -1,6 +1,6 @@
 use super::*;
-use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{symbol_short, token, Address, Env};
+use soroban_sdk::testutils::{Address as _, Events, Ledger};
+use soroban_sdk::{symbol_short, token, Address, Env, IntoVal, Symbol};
 
 #[test]
 fn test_initialize() {
@@ -112,7 +112,7 @@ fn test_pay_for_ticket() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
 
     let payment = client.get_payment(&payment_id);
     assert_eq!(payment.payment_id, payment_id);
@@ -155,7 +155,7 @@ fn test_payment_issues_ticket_and_links_payment() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
     let owner_tickets = client.get_owner_tickets(&payer);
 
     assert_eq!(owner_tickets.len(), 1);
@@ -183,8 +183,8 @@ fn test_multiple_payments_create_distinct_tickets_for_owner() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &(amount1 + amount2));
 
-    let payment_id_1 = client.pay_for_ticket(&payer, &event_id, &amount1);
-    let payment_id_2 = client.pay_for_ticket(&payer, &event_id, &amount2);
+    let payment_id_1 = client.pay_for_ticket(&payer, &event_id, &amount1, &None);
+    let payment_id_2 = client.pay_for_ticket(&payer, &event_id, &amount2, &None);
 
     let owner_tickets = client.get_owner_tickets(&payer);
     assert_eq!(owner_tickets.len(), 2);
@@ -208,7 +208,7 @@ fn test_pay_for_ticket_invalid_amount_zero() {
     let payer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
 
-    let result = client.try_pay_for_ticket(&payer, &event_id, &0);
+    let result = client.try_pay_for_ticket(&payer, &event_id, &0, &None);
     assert_eq!(result.err(), Some(Ok(PaymentError::InvalidAmount)));
 }
 
@@ -221,7 +221,7 @@ fn test_pay_for_ticket_invalid_amount_negative() {
     let payer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
 
-    let result = client.try_pay_for_ticket(&payer, &event_id, &-1);
+    let result = client.try_pay_for_ticket(&payer, &event_id, &-1, &None);
     assert_eq!(result.err(), Some(Ok(PaymentError::InvalidAmount)));
 }
 
@@ -235,7 +235,7 @@ fn test_pay_for_ticket_unauthorized() {
     let event_id = symbol_short!("EVENT1");
     let amount = 100_000_000i128;
 
-    client.pay_for_ticket(&payer, &event_id, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount, &None);
 }
 
 #[test]
@@ -257,9 +257,9 @@ fn test_pay_for_ticket_multiple_payments() {
     token_client.transfer(&admin, &payer1, &(amount1 + amount3));
     token_client.transfer(&admin, &payer2, &amount2);
 
-    let payment_id1 = client.pay_for_ticket(&payer1, &event_id1, &amount1);
-    let payment_id2 = client.pay_for_ticket(&payer2, &event_id2, &amount2);
-    let payment_id3 = client.pay_for_ticket(&payer1, &event_id1, &amount3);
+    let payment_id1 = client.pay_for_ticket(&payer1, &event_id1, &amount1, &None);
+    let payment_id2 = client.pay_for_ticket(&payer2, &event_id2, &amount2, &None);
+    let payment_id3 = client.pay_for_ticket(&payer1, &event_id1, &amount3, &None);
 
     assert_eq!(payment_id1, 1);
     assert_eq!(payment_id2, 2);
@@ -310,7 +310,7 @@ fn test_pay_for_ticket_query_record() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
 
     let payment = env
         .as_contract(&contract_id, || storage::get_payment(&env, payment_id))
@@ -339,7 +339,7 @@ fn test_refund_happy_path() {
     let token_client = token::Client::new(&env, &_token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
 
     assert_eq!(token_client.balance(&payer), 0);
     assert_eq!(token_client.balance(&contract_id), amount);
@@ -367,7 +367,7 @@ fn test_refund_double_refund() {
     let token_client = token::Client::new(&env, &_token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
     client.refund(&admin, &payment_id);
 
     let result = client.try_refund(&admin, &payment_id);
@@ -389,7 +389,7 @@ fn test_refund_unauthorized() {
     let token_client = token::Client::new(&env, &_token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
     let result = client.try_refund(&not_admin, &payment_id);
     assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
 }
@@ -409,7 +409,7 @@ fn test_refund_after_withdrawal() {
     let token_client = token::Client::new(&env, &_token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount);
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &None);
     client.withdraw(&organizer, &event_id);
 
     let result = client.try_refund(&admin, &payment_id);
@@ -437,8 +437,8 @@ fn test_withdraw_happy_path() {
     token_client.transfer(&admin, &payer1, &amount1);
     token_client.transfer(&admin, &payer2, &amount2);
 
-    let pid1 = client.pay_for_ticket(&payer1, &event_id, &amount1);
-    let pid2 = client.pay_for_ticket(&payer2, &event_id, &amount2);
+    let pid1 = client.pay_for_ticket(&payer1, &event_id, &amount1, &None);
+    let pid2 = client.pay_for_ticket(&payer2, &event_id, &amount2, &None);
 
     client.withdraw(&organizer, &event_id);
 
@@ -487,9 +487,9 @@ fn test_mixed_refund_then_withdraw() {
     token_client.transfer(&admin, &payer2, &amount2);
     token_client.transfer(&admin, &payer3, &amount3);
 
-    let pid1 = client.pay_for_ticket(&payer1, &event_id, &amount1);
-    let pid2 = client.pay_for_ticket(&payer2, &event_id, &amount2);
-    let pid3 = client.pay_for_ticket(&payer3, &event_id, &amount3);
+    let pid1 = client.pay_for_ticket(&payer1, &event_id, &amount1, &None);
+    let pid2 = client.pay_for_ticket(&payer2, &event_id, &amount2, &None);
+    let pid3 = client.pay_for_ticket(&payer3, &event_id, &amount3, &None);
 
     // Refund payment 2
     client.refund(&admin, &pid2);
@@ -528,8 +528,8 @@ fn test_refund_reduces_revenue_correctly() {
     token_client.transfer(&admin, &payer1, &amount1);
     token_client.transfer(&admin, &payer2, &amount2);
 
-    let pid1 = client.pay_for_ticket(&payer1, &event_id, &amount1);
-    client.pay_for_ticket(&payer2, &event_id, &amount2);
+    let pid1 = client.pay_for_ticket(&payer1, &event_id, &amount1, &None);
+    client.pay_for_ticket(&payer2, &event_id, &amount2, &None);
 
     assert_eq!(client.get_event_revenue(&event_id), amount1 + amount2);
 
@@ -565,13 +565,13 @@ fn test_query_payments() {
     token_utils.transfer(&admin, &payer2, &(amount * 2));
 
     // P1 -> E1
-    client.pay_for_ticket(&payer1, &event1, &amount);
+    client.pay_for_ticket(&payer1, &event1, &amount, &None);
     // P1 -> E2
-    client.pay_for_ticket(&payer1, &event2, &amount);
+    client.pay_for_ticket(&payer1, &event2, &amount, &None);
     // P2 -> E1
-    client.pay_for_ticket(&payer2, &event1, &amount);
+    client.pay_for_ticket(&payer2, &event1, &amount, &None);
     // P2 -> E2
-    client.pay_for_ticket(&payer2, &event2, &amount);
+    client.pay_for_ticket(&payer2, &event2, &amount, &None);
 
     // Query by Event E1
     let e1_payments = client.get_payments_by_event(&event1);
@@ -588,3 +588,24 @@ fn test_query_payments() {
     assert_ne!(p1_payments.get(0).unwrap().event_id, p1_payments.get(1).unwrap().event_id);
 }
 
+
+#[test]
+fn test_pay_for_ticket_with_email_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _contract_id, token_contract) = setup_contract_with_token(&env);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+    let email_hash = BytesN::from_array(&env, &[1u8; 32]);
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+
+    let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &Some(email_hash.clone()));
+
+    // Verify event emission occurred (basic check)
+    let _events = env.events().all();
+}

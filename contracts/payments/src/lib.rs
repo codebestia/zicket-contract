@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Symbol};
 
 mod errors;
 mod events;
@@ -55,6 +55,7 @@ impl PaymentsContract {
         payer: Address,
         event_id: Symbol,
         amount: i128,
+        email_hash: Option<BytesN<32>>,
     ) -> Result<u64, PaymentError> {
         payer.require_auth();
 
@@ -87,6 +88,10 @@ impl PaymentsContract {
         storage::add_event_revenue(&env, &event_id, amount);
 
         events::emit_payment_received(&env, payment_id, event_id, payer, amount);
+
+        if let Some(hash) = email_hash {
+            events::emit_payment_receipt_requested(&env, payment_id, Some(hash));
+        }
 
         let ticket_id = storage::get_next_ticket_id(&env);
         let ticket = Ticket {

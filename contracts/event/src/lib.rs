@@ -1,6 +1,6 @@
 #![no_std]
 use payments_contract::PaymentsContractClient;
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Symbol};
 use ticket_contract::TicketContractClient;
 
 mod errors;
@@ -357,6 +357,7 @@ impl EventContract {
         attendee: Address,
         event_id: Symbol,
         tier_id: u32,
+        email_hash: Option<BytesN<32>>,
     ) -> Result<(), EventError> {
         attendee.require_auth();
 
@@ -396,7 +397,7 @@ impl EventContract {
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
             // This call must succeed before minting and local registration persist.
-            payments_client.pay_for_ticket(&attendee, &event_id, &tier.price);
+            payments_client.pay_for_ticket(&attendee, &event_id, &tier.price, &email_hash);
         }
 
         let ticket_client = TicketContractClient::new(&env, &ticket_contract);
