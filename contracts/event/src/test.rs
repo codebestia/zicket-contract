@@ -35,6 +35,8 @@ fn test_create_event() {
     let event = client.get_event(&event_id);
     assert_eq!(event.name, String::from_str(&env, "Tech Conference 2024"));
     assert_eq!(event.status, EventStatus::Upcoming);
+    assert!(client.get_allow_anonymous(&event_id));
+    assert!(!client.get_requires_verification(&event_id));
 }
 
 #[test]
@@ -67,6 +69,8 @@ fn test_create_event_duplicate_fails() {
         venue: venue.clone(),
         event_date,
         initial_tiers: initial_tiers.clone(),
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     // First creation succeeds
@@ -81,6 +85,8 @@ fn test_create_event_duplicate_fails() {
         venue: venue.clone(),
         event_date,
         initial_tiers,
+        allow_anonymous: true,
+        requires_verification: false,
     };
     let result = client.try_create_event(&params_dup);
     assert_eq!(result.err(), Some(Ok(EventError::EventAlreadyExists)));
@@ -108,6 +114,8 @@ fn test_create_event_invalid_tickets_fails() {
                 capacity: 0, // Invalid
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -136,6 +144,8 @@ fn test_create_event_too_many_tickets_fails() {
                 capacity: 100_000, // Invalid limit
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -164,6 +174,8 @@ fn test_create_event_past_date_fails() {
                 capacity: 100,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -192,6 +204,8 @@ fn test_create_event_date_less_than_24h_fails() {
                 capacity: 100,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -220,6 +234,8 @@ fn test_create_event_negative_price_fails() {
                 capacity: 100,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -248,6 +264,8 @@ fn test_create_event_empty_name_fails() {
                 capacity: 100,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -276,6 +294,8 @@ fn test_create_event_empty_venue_fails() {
                 capacity: 100,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     let result = client.try_create_event(&params);
@@ -405,12 +425,16 @@ fn test_update_event_details() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: Some(false),
+        requires_verification: Some(true),
     };
 
     client.update_event_details(&params);
 
     let event = client.get_event(&event_id);
     assert_eq!(event.name, String::from_str(&env, "Updated Conference"));
+    assert!(!event.allow_anonymous);
+    assert!(event.requires_verification);
     // Verify other fields remain unchanged
     assert_eq!(event.venue, String::from_str(&env, "Convention Center"));
     let mut capacity = 0;
@@ -438,6 +462,8 @@ fn test_update_event_details_noop() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: None,
+        requires_verification: None,
     };
     client.update_event_details(&params);
 
@@ -459,6 +485,8 @@ fn test_update_event_not_found() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: None,
+        requires_verification: None,
     };
 
     let result = client.try_update_event_details(&params);
@@ -483,6 +511,8 @@ fn test_update_event_unauthorized() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: None,
+        requires_verification: None,
     };
 
     let result = client.try_update_event_details(&params);
@@ -509,6 +539,8 @@ fn test_update_active_event_fails() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: None,
+        requires_verification: None,
     };
 
     let result = client.try_update_event_details(&params);
@@ -536,6 +568,8 @@ fn test_update_cancelled_event_fails() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: None,
+        requires_verification: None,
     };
 
     let result = client.try_update_event_details(&params);
@@ -559,6 +593,8 @@ fn test_update_invalid_data() {
         description: None,
         venue: None,
         event_date: None,
+        allow_anonymous: None,
+        requires_verification: None,
     };
     let result = client.try_update_event_details(&params_name);
     assert!(result.is_err());
@@ -571,6 +607,8 @@ fn test_update_invalid_data() {
         description: None,
         venue: None,
         event_date: Some(BASE_TIMESTAMP), // now/past
+        allow_anonymous: None,
+        requires_verification: None,
     };
     let result_date = client.try_update_event_details(&params_date);
     assert!(result_date.is_err());
@@ -595,7 +633,7 @@ fn test_register_for_event_happy_path() {
     let event_id = setup_event(&env, &client, &organizer);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee, &event_id, &0);
+    client.register_for_event(&attendee, &event_id, &0, &false);
 
     let event = client.get_event(&event_id);
     assert_eq!(event.tiers.get(0).unwrap().sold, 1);
@@ -618,7 +656,7 @@ fn test_register_for_event_not_active_fails() {
 
     let event_id = setup_event(&env, &client, &organizer);
 
-    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    let result = client.try_register_for_event(&attendee, &event_id, &0, &false);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
 }
 
@@ -652,12 +690,14 @@ fn test_register_for_event_sold_out_fails() {
                 capacity: 1,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
     };
     client.create_event(&params);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee1, &event_id, &0);
-    let result = client.try_register_for_event(&attendee2, &event_id, &0);
+    client.register_for_event(&attendee1, &event_id, &0, &false);
+    let result = client.try_register_for_event(&attendee2, &event_id, &0, &false);
     assert_eq!(result.err(), Some(Ok(EventError::TierSoldOut)));
 }
 
@@ -676,8 +716,8 @@ fn test_register_for_event_duplicate_fails() {
     let event_id = setup_event(&env, &client, &organizer);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee, &event_id, &0);
-    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    client.register_for_event(&attendee, &event_id, &0, &false);
+    let result = client.try_register_for_event(&attendee, &event_id, &0, &false);
     assert_eq!(result.err(), Some(Ok(EventError::AlreadyRegistered)));
 }
 
@@ -696,7 +736,7 @@ fn test_register_for_event_cancelled_fails() {
     let event_id = setup_event(&env, &client, &organizer);
     client.cancel_event(&organizer, &event_id);
 
-    let result = client.try_register_for_event(&attendee, &event_id, &0);
+    let result = client.try_register_for_event(&attendee, &event_id, &0, &false);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
 }
 
@@ -717,8 +757,8 @@ fn test_get_attendees() {
     let event_id = setup_event(&env, &client, &organizer);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&attendee1, &event_id, &0);
-    client.register_for_event(&attendee2, &event_id, &0);
+    client.register_for_event(&attendee1, &event_id, &0, &false);
+    client.register_for_event(&attendee2, &event_id, &0, &false);
 
     let attendees = client.get_attendees(&event_id);
     assert_eq!(attendees.len(), 2);
@@ -750,6 +790,8 @@ fn setup_event(env: &Env, client: &EventContractClient, organizer: &Address) -> 
         venue,
         event_date,
         initial_tiers,
+        allow_anonymous: true,
+        requires_verification: false,
     };
 
     client.create_event(&params);
@@ -771,7 +813,7 @@ fn setup_registration_contracts(
 
     let payments_client =
         payments_contract::PaymentsContractClient::new(env, &payments_contract_id);
-    payments_client.initialize(admin, &token);
+    payments_client.initialize(admin, &token, &event_client.address);
 
     event_client.initialize(admin, &ticket_contract_id, &payments_contract_id);
 

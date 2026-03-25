@@ -3,9 +3,18 @@ use crate::types::{PaymentRecord, Ticket};
 use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
 
 #[contracttype]
+#[derive(Clone)]
+pub struct EventPrivacyConfig {
+    pub allow_anonymous: bool,
+    pub requires_verification: bool,
+}
+
+#[contracttype]
 pub enum DataKey {
     Admin,
     AcceptedToken,
+    EventContract,
+    EventPrivacy(Symbol),
     Payment(u64),
     Ticket(u64),
     EventPayments(Symbol),
@@ -52,10 +61,47 @@ pub fn set_accepted_token(env: &Env, token: &soroban_sdk::Address) {
     );
 }
 
+pub fn get_event_contract(env: &Env) -> Result<soroban_sdk::Address, PaymentError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EventContract)
+        .ok_or(PaymentError::NotInitialized)
+}
+
+pub fn set_event_contract(env: &Env, event_contract: &soroban_sdk::Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::EventContract, event_contract);
+    env.storage().persistent().extend_ttl(
+        &DataKey::EventContract,
+        60 * 60 * 24 * 30,
+        60 * 60 * 24 * 30 * 2,
+    );
+}
+
+pub fn get_event_privacy(env: &Env, event_id: &Symbol) -> EventPrivacyConfig {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EventPrivacy(event_id.clone()))
+        .unwrap_or(EventPrivacyConfig {
+            allow_anonymous: true,
+            requires_verification: false,
+        })
+}
+
+pub fn set_event_privacy(env: &Env, event_id: &Symbol, privacy: &EventPrivacyConfig) {
+    let key = DataKey::EventPrivacy(event_id.clone());
+    env.storage().persistent().set(&key, privacy);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
 /// Check if contract is initialized.
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().persistent().has(&DataKey::Admin)
         && env.storage().persistent().has(&DataKey::AcceptedToken)
+        && env.storage().persistent().has(&DataKey::EventContract)
 }
 
 /// Get the next payment ID and increment it.

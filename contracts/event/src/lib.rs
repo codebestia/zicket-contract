@@ -95,12 +95,24 @@ impl EventContract {
             description: params.description.clone(),
             venue: params.venue.clone(),
             event_date: params.event_date,
+            allow_anonymous: params.allow_anonymous,
+            requires_verification: params.requires_verification,
             tiers,
             status: EventStatus::Upcoming,
             created_at: env.ledger().timestamp(),
         };
 
         save_event(&env, &params.event_id, &event);
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            payments_client.sync_event_privacy(
+                &env.current_contract_address(),
+                &params.event_id,
+                &params.allow_anonymous,
+                &params.requires_verification,
+            );
+        }
         emit_event_created(&env, &params);
 
         Ok(event)
@@ -156,11 +168,37 @@ impl EventContract {
             }
             event.event_date = date;
         }
+        if let Some(allow_anonymous) = params.allow_anonymous {
+            event.allow_anonymous = allow_anonymous;
+        }
+        if let Some(requires_verification) = params.requires_verification {
+            event.requires_verification = requires_verification;
+        }
 
         save_event(&env, &params.event_id, &event);
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            payments_client.sync_event_privacy(
+                &env.current_contract_address(),
+                &params.event_id,
+                &event.allow_anonymous,
+                &event.requires_verification,
+            );
+        }
         emit_event_updated(&env, &event);
 
         Ok(event)
+    }
+
+    pub fn get_allow_anonymous(env: Env, event_id: Symbol) -> bool {
+        storage::get_event(&env, &event_id).unwrap().allow_anonymous
+    }
+
+    pub fn get_requires_verification(env: Env, event_id: Symbol) -> bool {
+        storage::get_event(&env, &event_id)
+            .unwrap()
+            .requires_verification
     }
 
     /// Add a new ticket tier to an Upcoming event. Only the organizer can do this.
@@ -357,6 +395,7 @@ impl EventContract {
         attendee: Address,
         event_id: Symbol,
         tier_id: u32,
+        is_verified: bool,
     ) -> Result<(), EventError> {
         attendee.require_auth();
 
@@ -396,7 +435,13 @@ impl EventContract {
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
             // This call must succeed before minting and local registration persist.
-            payments_client.pay_for_ticket(&attendee, &event_id, &tier.price);
+            payments_client.pay_for_ticket_with_options(
+                &attendee,
+                &event_id,
+                &tier.price,
+                &false,
+                &is_verified,
+            );
         }
 
         let ticket_client = TicketContractClient::new(&env, &ticket_contract);
