@@ -88,19 +88,44 @@ impl EventContract {
             return Err(EventError::EventAlreadyExists);
         }
 
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            let accepted_token = payments_client.get_accepted_token();
+
+            if params.payout_token != accepted_token {
+                return Err(EventError::InvalidPayoutToken);
+            }
+        }
+
         let event = Event {
             event_id: params.event_id.clone(),
             organizer: params.organizer.clone(),
+            payout_token: params.payout_token.clone(),
             name: params.name.clone(),
             description: params.description.clone(),
             venue: params.venue.clone(),
             event_date: params.event_date,
+            allow_anonymous: params.allow_anonymous,
+            requires_verification: params.requires_verification,
             tiers,
             status: EventStatus::Upcoming,
             created_at: env.ledger().timestamp(),
         };
 
         save_event(&env, &params.event_id, &event);
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            payments_client.sync_event_config(
+                &env.current_contract_address(),
+                &params.event_id,
+                &params.organizer,
+                &params.payout_token,
+                &params.allow_anonymous,
+                &params.requires_verification,
+            );
+        }
         emit_event_created(&env, &params);
 
         Ok(event)
@@ -156,8 +181,26 @@ impl EventContract {
             }
             event.event_date = date;
         }
+        if let Some(allow_anonymous) = params.allow_anonymous {
+            event.allow_anonymous = allow_anonymous;
+        }
+        if let Some(requires_verification) = params.requires_verification {
+            event.requires_verification = requires_verification;
+        }
 
         save_event(&env, &params.event_id, &event);
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            payments_client.sync_event_config(
+                &env.current_contract_address(),
+                &params.event_id,
+                &event.organizer,
+                &event.payout_token,
+                &event.allow_anonymous,
+                &event.requires_verification,
+            );
+        }
         emit_event_updated(&env, &event);
 
         Ok(event)

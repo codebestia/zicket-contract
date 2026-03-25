@@ -14,17 +14,33 @@ pub use types::*;
 #[contract]
 pub struct PaymentsContract;
 
+fn validate_payment_privacy(env: &Env, event_id: &Symbol) -> Result<(), PaymentError> {
+    if let Some(config) = storage::get_event_config(env, event_id) {
+        if !config.allow_anonymous || config.requires_verification {
+            return Ok(());
+        }
+    }
+
+    Ok(())
+}
+
 #[contractimpl]
 impl PaymentsContract {
     /// Initialize the contract with an admin address and accepted token address.
     /// This can only be called once. If already initialized, this is a no-op.
-    pub fn initialize(env: Env, admin: Address, token: Address) -> Result<(), PaymentError> {
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        token: Address,
+        event_contract: Address,
+    ) -> Result<(), PaymentError> {
         if storage::is_initialized(&env) {
             return Ok(());
         }
 
         storage::set_admin(&env, &admin);
         storage::set_accepted_token(&env, &token);
+        storage::set_event_contract(&env, &event_contract);
 
         Ok(())
     }
@@ -37,6 +53,14 @@ impl PaymentsContract {
     /// Get the total revenue for an event.
     pub fn get_event_revenue(env: Env, event_id: Symbol) -> i128 {
         storage::get_event_revenue(&env, &event_id)
+    }
+
+    pub fn get_accepted_token(env: Env) -> Result<Address, PaymentError> {
+        storage::get_accepted_token(&env)
+    }
+
+    pub fn get_event_config(env: Env, event_id: Symbol) -> Result<EventConfig, PaymentError> {
+        storage::get_event_config(&env, &event_id).ok_or(PaymentError::InvalidOrganizer)
     }
 
     /// Get a ticket record by ticket ID.
@@ -61,6 +85,8 @@ impl PaymentsContract {
         if amount <= 0 {
             return Err(PaymentError::InvalidAmount);
         }
+
+        validate_payment_privacy(&env, &event_id)?;
 
         let token_address = storage::get_accepted_token(&env)?;
         let contract_address = env.current_contract_address();
@@ -99,6 +125,48 @@ impl PaymentsContract {
         events::emit_ticket_issued(&env, ticket_id, payment.event_id, payment.payer);
 
         Ok(payment_id)
+    }
+
+    pub fn sync_event_config(
+        env: Env,
+        event_contract: Address,
+        event_id: Symbol,
+        organizer: Address,
+        payout_token: Address,
+        allow_anonymous: bool,
+        requires_verification: bool,
+    ) -> Result<(), PaymentError> {
+        if event_contract != storage::get_event_contract(&env)? {
+            return Err(PaymentError::Unauthorized);
+        }
+        event_contract.require_auth();
+
+        let accepted_token = storage::get_accepted_token(&env)?;
+        if payout_token != accepted_token {
+            return Err(PaymentError::InvalidPayoutToken);
+        }
+
+        if let Some(existing_config) = storage::get_event_config(&env, &event_id) {
+            if existing_config.organizer != organizer {
+                return Err(PaymentError::InvalidOrganizer);
+            }
+            if existing_config.payout_token != payout_token {
+                return Err(PaymentError::InvalidPayoutToken);
+            }
+        }
+
+        storage::set_event_config(
+            &env,
+            &event_id,
+            &EventConfig {
+                organizer,
+                payout_token,
+                allow_anonymous,
+                requires_verification,
+            },
+        );
+
+        Ok(())
     }
 
     pub fn refund(env: Env, admin: Address, payment_id: u64) -> Result<(), PaymentError> {
@@ -144,13 +212,18 @@ impl PaymentsContract {
     pub fn withdraw(env: Env, organizer: Address, event_id: Symbol) -> Result<(), PaymentError> {
         organizer.require_auth();
 
+        let stored_organizer = storage::get_event_organizer(&env, &event_id)?;
+        if organizer != stored_organizer {
+            return Err(PaymentError::UnauthorizedWithdrawal);
+        }
+
+        let payout_token = storage::get_event_payout_token(&env, &event_id)?;
+
         let revenue = storage::get_event_revenue(&env, &event_id);
         if revenue <= 0 {
             return Err(PaymentError::NoRevenue);
         }
 
-        let token_address = storage::get_accepted_token(&env)?;
-        let token_client = token::Client::new(&env, &token_address);
         let payment_ids = storage::get_event_payments(&env, &event_id);
 
         let mut total: i128 = 0;
@@ -169,7 +242,8 @@ impl PaymentsContract {
             return Err(PaymentError::NoRevenue);
         }
 
-        token_client.transfer(&env.current_contract_address(), &organizer, &total);
+        let token_client = token::Client::new(&env, &payout_token);
+        token_client.transfer(&env.current_contract_address(), &stored_organizer, &total);
 
         for i in 0..payments_to_release.len() {
             let mut payment = payments_to_release.get(i).unwrap();
@@ -179,7 +253,7 @@ impl PaymentsContract {
 
         storage::set_event_revenue(&env, &event_id, 0);
 
-        events::emit_revenue_withdrawn(&env, event_id, organizer, total);
+        events::emit_revenue_withdrawn(&env, event_id, stored_organizer, total);
 
         Ok(())
     }
