@@ -13,11 +13,15 @@ pub enum DataKey {
     DeployedEvent(Symbol),
     AllEvents,
     OrganizerEvents(Address),
+    TicketContract,
+    PaymentsContract,
 }
 
 pub fn is_initialized(env: &Env) -> bool {
     env.storage().persistent().has(&DataKey::Admin)
         && env.storage().persistent().has(&DataKey::EventWasm)
+        && env.storage().persistent().has(&DataKey::TicketContract)
+        && env.storage().persistent().has(&DataKey::PaymentsContract)
 }
 
 pub fn get_admin(env: &Env) -> Result<Address, FactoryError> {
@@ -46,6 +50,38 @@ pub fn set_event_wasm_hash(env: &Env, hash: &BytesN<32>) {
     env.storage()
         .persistent()
         .extend_ttl(&DataKey::EventWasm, TTL_THRESHOLD, TTL_BUMP);
+}
+
+pub fn get_ticket_contract(env: &Env) -> Result<Address, FactoryError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::TicketContract)
+        .ok_or(FactoryError::NotInitialized)
+}
+
+pub fn set_ticket_contract(env: &Env, address: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::TicketContract, address);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::TicketContract, TTL_THRESHOLD, TTL_BUMP);
+}
+
+pub fn get_payments_contract(env: &Env) -> Result<Address, FactoryError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PaymentsContract)
+        .ok_or(FactoryError::NotInitialized)
+}
+
+pub fn set_payments_contract(env: &Env, address: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PaymentsContract, address);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::PaymentsContract, TTL_THRESHOLD, TTL_BUMP);
 }
 
 pub fn save_deployed_event(env: &Env, event: &DeployedEvent) -> Result<(), FactoryError> {
