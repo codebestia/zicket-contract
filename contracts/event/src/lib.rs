@@ -57,7 +57,7 @@ impl EventContract {
             return Err(EventError::InvalidEventDate);
         }
 
-        // Validate there is at least one tier
+        // Validate there is at least 1 tier
         if params.initial_tiers.is_empty() {
             return Err(EventError::InvalidInput);
         }
