@@ -58,6 +58,7 @@ pub struct RevenueWithdrawn {
     pub withdrawn_at: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_payment_received(
     env: &Env,
     payment_id: u64,

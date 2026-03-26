@@ -416,7 +416,6 @@ fn test_multiple_withdrawals_tracked() {
 }
 
 #[test]
-#[test]
 fn test_pay_for_ticket_anonymous_privacy() {
     let env = Env::default();
     env.mock_all_auths();
