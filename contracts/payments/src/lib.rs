@@ -192,7 +192,7 @@ impl PaymentsContract {
         let mut payments_to_release: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::Vec::new(&env);
 
         for i in 0..payment_ids.len() {
-            let pid = payment_ids.get(i).unwrap();
+            let pid = payment_ids.get(i).ok_or(PaymentError::PaymentNotFound)?;
             let payment = storage::get_payment(&env, pid)?;
             if payment.status == PaymentStatus::Held {
                 total += payment.amount;
@@ -207,7 +207,9 @@ impl PaymentsContract {
         token_client.transfer(&env.current_contract_address(), &organizer, &total);
 
         for i in 0..payments_to_release.len() {
-            let mut payment = payments_to_release.get(i).unwrap();
+            let mut payment = payments_to_release
+                .get(i)
+                .ok_or(PaymentError::PaymentNotFound)?;
             payment.status = PaymentStatus::Released;
             storage::update_payment(&env, &payment)?;
         }
