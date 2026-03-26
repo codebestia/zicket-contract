@@ -89,9 +89,20 @@ impl EventContract {
             return Err(EventError::EventAlreadyExists);
         }
 
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            let accepted_token = payments_client.get_accepted_token();
+
+            if params.payout_token != accepted_token {
+                return Err(EventError::InvalidPayoutToken);
+            }
+        }
+
         let event = Event {
             event_id: params.event_id.clone(),
             organizer: params.organizer.clone(),
+            payout_token: params.payout_token.clone(),
             name: params.name.clone(),
             description: params.description.clone(),
             venue: params.venue.clone(),
@@ -107,9 +118,11 @@ impl EventContract {
         if has_linked_contracts(&env) {
             let payments_contract = get_payments_contract(&env)?;
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
-            payments_client.sync_event_privacy(
+            payments_client.sync_event_config(
                 &env.current_contract_address(),
                 &params.event_id,
+                &params.organizer,
+                &params.payout_token,
                 &params.allow_anonymous,
                 &params.requires_verification,
             );
@@ -180,9 +193,11 @@ impl EventContract {
         if has_linked_contracts(&env) {
             let payments_contract = get_payments_contract(&env)?;
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
-            payments_client.sync_event_privacy(
+            payments_client.sync_event_config(
                 &env.current_contract_address(),
                 &params.event_id,
+                &event.organizer,
+                &event.payout_token,
                 &event.allow_anonymous,
                 &event.requires_verification,
             );

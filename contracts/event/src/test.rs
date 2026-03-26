@@ -19,6 +19,10 @@ fn setup_env() -> Env {
 
 const BASE_TIMESTAMP: u64 = 1704067200;
 
+fn test_payout_token(env: &Env) -> Address {
+    Address::generate(env)
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -63,6 +67,7 @@ fn test_create_event_duplicate_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: event_id.clone(),
         name: name.clone(),
         description: description.clone(),
@@ -79,6 +84,7 @@ fn test_create_event_duplicate_fails() {
     // Second creation with same ID fails
     let params_dup = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: event_id.clone(),
         name: name.clone(), // doesn't matter
         description: description.clone(),
@@ -101,6 +107,7 @@ fn test_create_event_invalid_tickets_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, "Bad Event"),
         description: String::from_str(&env, "Desc"),
@@ -131,6 +138,7 @@ fn test_create_event_too_many_tickets_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, "Bad Event"),
         description: String::from_str(&env, "Desc"),
@@ -161,6 +169,7 @@ fn test_create_event_past_date_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, "Bad Event"),
         description: String::from_str(&env, "Desc"),
@@ -191,6 +200,7 @@ fn test_create_event_date_less_than_24h_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, "Bad Event"),
         description: String::from_str(&env, "Desc"),
@@ -221,6 +231,7 @@ fn test_create_event_negative_price_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, "Bad Event"),
         description: String::from_str(&env, "Desc"),
@@ -251,6 +262,7 @@ fn test_create_event_empty_name_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, ""), // Empty
         description: String::from_str(&env, "Desc"),
@@ -281,6 +293,7 @@ fn test_create_event_empty_venue_fails() {
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: Symbol::new(&env, "event_bad"),
         name: String::from_str(&env, "Event"),
         description: String::from_str(&env, "Desc"),
@@ -630,7 +643,7 @@ fn test_register_for_event_happy_path() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     client.register_for_event(&attendee, &event_id, &0, &false);
@@ -654,7 +667,7 @@ fn test_register_for_event_not_active_fails() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
 
     let result = client.try_register_for_event(&attendee, &event_id, &0, &false);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
@@ -677,6 +690,7 @@ fn test_register_for_event_sold_out_fails() {
     let event_id = Symbol::new(&env, "event_02");
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: token.clone(),
         event_id: event_id.clone(),
         name: String::from_str(&env, "One Ticket"),
         description: String::from_str(&env, "Desc"),
@@ -713,7 +727,7 @@ fn test_register_for_event_duplicate_fails() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 200_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     client.register_for_event(&attendee, &event_id, &0, &false);
@@ -733,7 +747,7 @@ fn test_register_for_event_cancelled_fails() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.cancel_event(&organizer, &event_id);
 
     let result = client.try_register_for_event(&attendee, &event_id, &0, &false);
@@ -754,7 +768,7 @@ fn test_get_attendees() {
     fund_attendee(&env, &token_admin, &token, &attendee1, 100_000_000);
     fund_attendee(&env, &token_admin, &token, &attendee2, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     client.register_for_event(&attendee1, &event_id, &0, &false);
@@ -767,6 +781,15 @@ fn test_get_attendees() {
 }
 
 fn setup_event(env: &Env, client: &EventContractClient, organizer: &Address) -> Symbol {
+    setup_event_with_payout_token(env, client, organizer, &test_payout_token(env))
+}
+
+fn setup_event_with_payout_token(
+    env: &Env,
+    client: &EventContractClient,
+    organizer: &Address,
+    payout_token: &Address,
+) -> Symbol {
     let event_id = Symbol::new(env, "event_01");
     let name = String::from_str(env, "Tech Conference 2024");
     let description = String::from_str(env, "A great conference");
@@ -784,6 +807,7 @@ fn setup_event(env: &Env, client: &EventContractClient, organizer: &Address) -> 
 
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: payout_token.clone(),
         event_id: event_id.clone(),
         name,
         description,
@@ -849,7 +873,7 @@ fn test_reserve_ticket_success() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     client.reserve_ticket(&attendee, &event_id, &0);
@@ -872,7 +896,7 @@ fn test_reserve_and_pay_success() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     // 1. Reserve
@@ -901,6 +925,7 @@ fn test_reserve_expire_and_available_again() {
     let event_id = Symbol::new(&env, "event_limit");
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: test_payout_token(&env),
         event_id: event_id.clone(),
         name: String::from_str(&env, "Limit Event"),
         description: String::from_str(&env, "Desc"),
@@ -962,7 +987,7 @@ fn test_pay_with_expired_reservation_fails() {
         setup_registration_contracts(&env, &client, &organizer);
     fund_attendee(&env, &token_admin, &token, &attendee, 100_000_000);
 
-    let event_id = setup_event(&env, &client, &organizer);
+    let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     // 1. Reserve

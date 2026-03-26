@@ -10,11 +10,21 @@ pub struct EventPrivacyConfig {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventConfig {
+    pub organizer: Address,
+    pub payout_token: Address,
+    pub allow_anonymous: bool,
+    pub requires_verification: bool,
+}
+
+#[contracttype]
 pub enum DataKey {
     Admin,
     AcceptedToken,
     EventContract,
     EventPrivacy(Symbol),
+    EventConfig(Symbol),
     Payment(u64),
     Ticket(u64),
     EventPayments(Symbol),
@@ -111,6 +121,32 @@ pub fn set_event_privacy(env: &Env, event_id: &Symbol, privacy: &EventPrivacyCon
     env.storage()
         .persistent()
         .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+pub fn get_event_config(env: &Env, event_id: &Symbol) -> Option<EventConfig> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EventConfig(event_id.clone()))
+}
+
+pub fn set_event_config(env: &Env, event_id: &Symbol, config: &EventConfig) {
+    let key = DataKey::EventConfig(event_id.clone());
+    env.storage().persistent().set(&key, config);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+pub fn get_event_organizer(env: &Env, event_id: &Symbol) -> Result<Address, PaymentError> {
+    get_event_config(env, event_id)
+        .map(|config| config.organizer)
+        .ok_or(PaymentError::InvalidOrganizer)
+}
+
+pub fn get_event_payout_token(env: &Env, event_id: &Symbol) -> Result<Address, PaymentError> {
+    get_event_config(env, event_id)
+        .map(|config| config.payout_token)
+        .ok_or(PaymentError::InvalidPayoutToken)
 }
 
 /// Check if contract is initialized.
