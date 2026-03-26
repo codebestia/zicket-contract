@@ -1,5 +1,5 @@
 use crate::errors::PaymentError;
-use crate::types::{PaymentRecord, Ticket};
+use crate::types::{EventStatus, PaymentRecord, Ticket};
 use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
 
 #[contracttype]
@@ -10,10 +10,25 @@ pub enum DataKey {
     Ticket(u64),
     EventPayments(Symbol),
     EventRevenue(Symbol),
+    EventStatus(Symbol),
     OwnerTickets(Address),
     WithdrawalHistory(Symbol),
     NextPaymentId,
     NextTicketId,
+}
+
+pub fn set_event_status(env: &Env, event_id: &Symbol, status: &EventStatus) {
+    let key = DataKey::EventStatus(event_id.clone());
+    env.storage().persistent().set(&key, status);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+pub fn get_event_status(env: &Env, event_id: &Symbol) -> Option<EventStatus> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EventStatus(event_id.clone()))
 }
 
 /// Get the admin address from storage.
