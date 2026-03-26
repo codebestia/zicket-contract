@@ -14,6 +14,9 @@ pub enum DataKey {
     WithdrawalHistory(Symbol),
     NextPaymentId,
     NextTicketId,
+    PlatformFeeBps,
+    PlatformWallet,
+    PlatformRevenue(Symbol),
 }
 
 /// Get the admin address from storage.
@@ -245,5 +248,69 @@ pub fn get_withdrawal_history(env: &Env, event_id: &Symbol) -> Vec<crate::types:
 
 pub fn reset_event_revenue(env: &Env, event_id: &Symbol) {
     let key = DataKey::EventRevenue(event_id.clone());
+    env.storage().persistent().set(&key, &0i128);
+}
+
+/// Get the platform fee in basis points (0-10000).
+pub fn get_platform_fee_bps(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PlatformFeeBps)
+        .unwrap_or(0)
+}
+
+/// Set the platform fee in basis points.
+pub fn set_platform_fee_bps(env: &Env, bps: u32) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PlatformFeeBps, &bps);
+    env.storage().persistent().extend_ttl(
+        &DataKey::PlatformFeeBps,
+        60 * 60 * 24 * 30,
+        60 * 60 * 24 * 30 * 2,
+    );
+}
+
+/// Get the platform wallet address.
+pub fn get_platform_wallet(env: &Env) -> Result<Address, PaymentError> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PlatformWallet)
+        .ok_or(PaymentError::NotInitialized)
+}
+
+/// Set the platform wallet address.
+pub fn set_platform_wallet(env: &Env, wallet: &Address) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::PlatformWallet, wallet);
+    env.storage().persistent().extend_ttl(
+        &DataKey::PlatformWallet,
+        60 * 60 * 24 * 30,
+        60 * 60 * 24 * 30 * 2,
+    );
+}
+
+/// Get accumulated platform revenue for an event.
+pub fn get_platform_revenue(env: &Env, event_id: &Symbol) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PlatformRevenue(event_id.clone()))
+        .unwrap_or(0)
+}
+
+/// Add to the platform revenue for an event.
+pub fn add_platform_revenue(env: &Env, event_id: &Symbol, amount: i128) {
+    let current = get_platform_revenue(env, event_id);
+    let key = DataKey::PlatformRevenue(event_id.clone());
+    env.storage().persistent().set(&key, &(current + amount));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+/// Reset platform revenue for an event after withdrawal.
+pub fn reset_platform_revenue(env: &Env, event_id: &Symbol) {
+    let key = DataKey::PlatformRevenue(event_id.clone());
     env.storage().persistent().set(&key, &0i128);
 }

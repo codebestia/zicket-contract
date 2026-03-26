@@ -10,8 +10,9 @@ fn test_initialize() {
 
     let admin = Address::generate(&env);
     let token = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
 
-    client.initialize(&admin, &token);
+    client.initialize(&admin, &token, &250, &platform_wallet);
 
     let stored_admin = env
         .as_contract(&contract_id, || storage::get_admin(&env))
@@ -22,6 +23,7 @@ fn test_initialize() {
 
     assert_eq!(stored_admin, admin);
     assert_eq!(stored_token, token);
+    assert_eq!(client.get_platform_fee_bps(), 250);
 }
 
 #[test]
@@ -32,10 +34,11 @@ fn test_double_initialization() {
 
     let admin = Address::generate(&env);
     let token = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
 
-    client.initialize(&admin, &token);
+    client.initialize(&admin, &token, &0, &platform_wallet);
 
-    let result = client.try_initialize(&admin, &token);
+    let result = client.try_initialize(&admin, &token, &0, &platform_wallet);
     assert!(result.is_ok());
 
     let stored_admin = env
@@ -56,8 +59,9 @@ fn test_get_nonexistent_payment() {
 
     let admin = Address::generate(&env);
     let token = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
 
-    client.initialize(&admin, &token);
+    client.initialize(&admin, &token, &0, &platform_wallet);
     let result = client.try_get_payment(&999);
     assert_eq!(result.err(), Some(Ok(PaymentError::PaymentNotFound)));
 }
@@ -70,8 +74,9 @@ fn test_get_event_revenue_initial() {
 
     let admin = Address::generate(&env);
     let token = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
 
-    client.initialize(&admin, &token);
+    client.initialize(&admin, &token, &0, &platform_wallet);
     let event_id = symbol_short!("EVENT1");
     let revenue = client.get_event_revenue(&event_id);
     assert_eq!(revenue, 0);
@@ -86,13 +91,27 @@ fn setup_contract_with_token(
     Address,
     token::StellarAssetClient<'_>,
 ) {
+    setup_contract_with_fee(env, 0)
+}
+
+fn setup_contract_with_fee(
+    env: &Env,
+    fee_bps: u32,
+) -> (
+    Address,
+    Address,
+    PaymentsContractClient<'_>,
+    Address,
+    token::StellarAssetClient<'_>,
+) {
     let contract_id = env.register(PaymentsContract, ());
     let client = PaymentsContractClient::new(env, &contract_id);
 
     let admin = Address::generate(env);
+    let platform_wallet = Address::generate(env);
     let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
     let token = token_contract.address();
-    client.initialize(&admin, &token);
+    client.initialize(&admin, &token, &fee_bps, &platform_wallet);
 
     let token_client = token::StellarAssetClient::new(env, &token);
     (admin, token, client, contract_id, token_client)
@@ -398,4 +417,223 @@ fn test_multiple_withdrawals_tracked() {
     assert_eq!(history.len(), 2);
     assert_eq!(history.get(0).unwrap().amount, amount);
     assert_eq!(history.get(1).unwrap().amount, amount);
+}
+
+// ===== Platform Fee Tests =====
+
+#[test]
+fn test_initialize_invalid_fee_bps() {
+    let env = Env::default();
+    let contract_id = env.register(PaymentsContract, ());
+    let client = PaymentsContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+
+    let result = client.try_initialize(&admin, &token, &10_001, &platform_wallet);
+    assert_eq!(result.err(), Some(Ok(PaymentError::InvalidFeeBps)));
+}
+
+#[test]
+fn test_withdraw_revenue_with_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1704067200;
+    });
+
+    // 2.5% fee = 250 bps
+    let (admin, token, client, contract_id, token_contract) = setup_contract_with_fee(&env, 250);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128; // 100 tokens
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount);
+
+    // Withdraw revenue — fee should be deducted
+    let organizer = Address::generate(&env);
+    client.withdraw_revenue(&event_id, &organizer);
+
+    // Fee = 100_000_000 * 250 / 10_000 = 2_500_000
+    let expected_fee = 2_500_000i128;
+    let expected_organizer = amount - expected_fee;
+
+    // Organizer gets amount minus fee
+    assert_eq!(token_client.balance(&organizer), expected_organizer);
+    // Contract still holds the fee portion
+    assert_eq!(token_client.balance(&contract_id), expected_fee);
+    // Platform revenue accumulated
+    assert_eq!(client.get_platform_revenue(&event_id), expected_fee);
+    // Event revenue is reset
+    assert_eq!(client.get_event_revenue(&event_id), 0);
+
+    // Withdrawal history records organizer amount (after fee)
+    let history = client.get_withdrawal_history(&event_id);
+    assert_eq!(history.len(), 1);
+    assert_eq!(history.get(0).unwrap().amount, expected_organizer);
+}
+
+#[test]
+fn test_withdraw_revenue_zero_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1704067200;
+    });
+
+    // 0% fee
+    let (admin, token, client, contract_id, token_contract) = setup_contract_with_fee(&env, 0);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount);
+
+    let organizer = Address::generate(&env);
+    client.withdraw_revenue(&event_id, &organizer);
+
+    // Full amount to organizer, nothing retained
+    assert_eq!(token_client.balance(&organizer), amount);
+    assert_eq!(token_client.balance(&contract_id), 0);
+    assert_eq!(client.get_platform_revenue(&event_id), 0);
+}
+
+#[test]
+fn test_withdraw_platform_revenue() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 5% fee = 500 bps
+    let (admin, token, client, contract_id, token_contract) = setup_contract_with_fee(&env, 500);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 200_000_000i128;
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount);
+
+    // Withdraw revenue — fee accumulated
+    let organizer = Address::generate(&env);
+    client.withdraw_revenue(&event_id, &organizer);
+
+    // Fee = 200_000_000 * 500 / 10_000 = 10_000_000
+    let expected_fee = 10_000_000i128;
+    assert_eq!(client.get_platform_revenue(&event_id), expected_fee);
+    assert_eq!(token_client.balance(&contract_id), expected_fee);
+
+    // Withdraw platform revenue
+    client.withdraw_platform_revenue(&event_id);
+
+    // Platform revenue reset, contract balance zero
+    assert_eq!(client.get_platform_revenue(&event_id), 0);
+    assert_eq!(token_client.balance(&contract_id), 0);
+}
+
+#[test]
+fn test_withdraw_platform_revenue_no_revenue() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, _token, client, _, _) = setup_contract_with_fee(&env, 500);
+    let event_id = symbol_short!("EVENT1");
+
+    let result = client.try_withdraw_platform_revenue(&event_id);
+    assert_eq!(result.err(), Some(Ok(PaymentError::NoPlatformRevenue)));
+}
+
+#[test]
+fn test_set_platform_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, _token, client, _, _) = setup_contract_with_fee(&env, 250);
+
+    assert_eq!(client.get_platform_fee_bps(), 250);
+
+    let new_wallet = Address::generate(&env);
+    client.set_platform_fee(&500, &new_wallet);
+
+    assert_eq!(client.get_platform_fee_bps(), 500);
+}
+
+#[test]
+fn test_set_platform_fee_invalid_bps() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, _token, client, _, _) = setup_contract_with_fee(&env, 250);
+    let new_wallet = Address::generate(&env);
+
+    let result = client.try_set_platform_fee(&10_001, &new_wallet);
+    assert_eq!(result.err(), Some(Ok(PaymentError::InvalidFeeBps)));
+}
+
+#[test]
+fn test_organizer_withdraw_with_fee() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 10% fee = 1000 bps
+    let (admin, token, client, contract_id, token_contract) = setup_contract_with_fee(&env, 1000);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount);
+
+    // Organizer withdraws via `withdraw` function
+    let organizer = Address::generate(&env);
+    client.withdraw(&organizer, &event_id);
+
+    // Fee = 100_000_000 * 1000 / 10_000 = 10_000_000
+    let expected_fee = 10_000_000i128;
+    let expected_organizer = amount - expected_fee;
+
+    assert_eq!(token_client.balance(&organizer), expected_organizer);
+    assert_eq!(token_client.balance(&contract_id), expected_fee);
+    assert_eq!(client.get_platform_revenue(&event_id), expected_fee);
+}
+
+#[test]
+fn test_platform_revenue_accumulates_across_withdrawals() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // 5% fee = 500 bps
+    let (admin, token, client, _contract_id, token_contract) = setup_contract_with_fee(&env, 500);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+    let token_client = token::Client::new(&env, &token);
+    let organizer = Address::generate(&env);
+
+    // First cycle
+    token_contract.mint(&admin, &amount);
+    token_client.transfer(&admin, &payer, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount);
+    client.withdraw_revenue(&event_id, &organizer);
+
+    let fee_per_cycle = 5_000_000i128; // 100M * 500 / 10000
+    assert_eq!(client.get_platform_revenue(&event_id), fee_per_cycle);
+
+    // Second cycle
+    token_contract.mint(&admin, &amount);
+    token_client.transfer(&admin, &payer, &amount);
+    client.pay_for_ticket(&payer, &event_id, &amount);
+    client.withdraw_revenue(&event_id, &organizer);
+
+    // Platform revenue should accumulate
+    assert_eq!(client.get_platform_revenue(&event_id), fee_per_cycle * 2);
 }

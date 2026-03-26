@@ -63,7 +63,8 @@ fn test_registration_cross_contract_happy_path() {
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
     let token_client = token::Client::new(&env, &token_address);
 
-    payments_client.initialize(&organizer, &token_address);
+    let platform_wallet = Address::generate(&env);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
     event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
 
     let price = 100_000_000i128;
@@ -120,7 +121,8 @@ fn test_registration_reverts_if_minting_fails() {
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
     let token_client = token::Client::new(&env, &token_address);
 
-    payments_client.initialize(&organizer, &token_address);
+    let platform_wallet = Address::generate(&env);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
     // Intentionally link the ticket contract to the payments contract to force mint failure.
     event_client.initialize(&organizer, &payments_contract_id, &payments_contract_id);
 
@@ -173,7 +175,8 @@ fn test_cancel_event_triggers_refunds() {
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
     let token_client = token::Client::new(&env, &token_address);
 
-    payments_client.initialize(&organizer, &token_address);
+    let platform_wallet = Address::generate(&env);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
     event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
 
     let price = 100_000_000i128;
@@ -231,7 +234,8 @@ fn test_withdraw_revenue_integration() {
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
     let token_client = token::Client::new(&env, &token_address);
 
-    payments_client.initialize(&organizer, &token_address);
+    let platform_wallet = Address::generate(&env);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
     event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
 
     let price = 100_000_000i128;
