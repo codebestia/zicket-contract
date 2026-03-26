@@ -332,7 +332,7 @@ impl EventContract {
 
         update_event(&env, &event_id, &event)?;
         emit_status_changed(&env, &event_id, &old_status, &EventStatus::Cancelled);
-        emit_event_cancelled(&env, &event_id);
+        emit_event_cancelled(&env, &event_id, &organizer);
 
         // Process refunds if contracts are linked
         if has_linked_contracts(&env) {
