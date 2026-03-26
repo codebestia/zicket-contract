@@ -1,5 +1,5 @@
 #![no_std]
-use payments_contract::PaymentsContractClient;
+use payments_contract::{PaymentPrivacy, PaymentsContractClient};
 use soroban_sdk::{contract, contractimpl, Address, Env, Symbol};
 use ticket_contract::TicketContractClient;
 
@@ -528,7 +528,12 @@ impl EventContract {
 
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
-            payments_client.pay_for_ticket(&attendee, &event_id, &tier.price);
+            payments_client.pay_for_ticket(
+                &attendee,
+                &event_id,
+                &tier.price,
+                &PaymentPrivacy::Standard,
+            );
         }
 
         let ticket_client = TicketContractClient::new(&env, &ticket_contract);

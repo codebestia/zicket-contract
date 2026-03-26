@@ -10,6 +10,14 @@ pub enum PaymentStatus {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PaymentPrivacy {
+    Anonymous = 0,
+    Private = 1,
+    Standard = 2,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaymentRecord {
     pub payment_id: u64,
     pub event_id: Symbol,
@@ -18,6 +26,7 @@ pub struct PaymentRecord {
     pub token: Address,
     pub status: PaymentStatus,
     pub paid_at: u64,
+    pub privacy_level: PaymentPrivacy,
 }
 
 #[contracttype]

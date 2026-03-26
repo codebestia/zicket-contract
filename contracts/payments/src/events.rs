@@ -1,3 +1,4 @@
+use crate::types::PaymentPrivacy;
 use soroban_sdk::{contractevent, Address, Env, Symbol};
 
 #[contractevent(data_format = "vec", topics = ["payment"])]
@@ -6,6 +7,24 @@ pub struct PaymentReceived {
     pub event_id: Symbol,
     pub payer: Address,
     pub amount: i128,
+    pub privacy_level: PaymentPrivacy,
+}
+
+/// Payment event emitted for anonymous payments (no payer exposed).
+#[contractevent(data_format = "vec", topics = ["payment_anonymous"])]
+pub struct PaymentReceivedAnonymous {
+    pub payment_id: u64,
+    pub event_id: Symbol,
+    pub amount: i128,
+}
+
+/// Payment event emitted for private payments (privacy_level included, no payer).
+#[contractevent(data_format = "vec", topics = ["payment_private"])]
+pub struct PaymentReceivedPrivate {
+    pub payment_id: u64,
+    pub event_id: Symbol,
+    pub amount: i128,
+    pub privacy_level: PaymentPrivacy,
 }
 
 #[contractevent(data_format = "vec", topics = ["refund"])]
@@ -29,14 +48,37 @@ pub fn emit_payment_received(
     event_id: Symbol,
     payer: Address,
     amount: i128,
+    privacy_level: PaymentPrivacy,
 ) {
-    PaymentReceived {
-        payment_id,
-        event_id,
-        payer,
-        amount,
+    match privacy_level {
+        PaymentPrivacy::Anonymous => {
+            PaymentReceivedAnonymous {
+                payment_id,
+                event_id,
+                amount,
+            }
+            .publish(env);
+        }
+        PaymentPrivacy::Private => {
+            PaymentReceivedPrivate {
+                payment_id,
+                event_id,
+                amount,
+                privacy_level,
+            }
+            .publish(env);
+        }
+        PaymentPrivacy::Standard => {
+            PaymentReceived {
+                payment_id,
+                event_id,
+                payer,
+                amount,
+                privacy_level,
+            }
+            .publish(env);
+        }
     }
-    .publish(env);
 }
 
 #[contractevent(data_format = "vec", topics = ["withdrawal"])]
