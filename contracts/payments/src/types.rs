@@ -2,6 +2,15 @@ use soroban_sdk::{contracttype, Address, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EventStatus {
+    Upcoming = 0,
+    Active = 1,
+    Completed = 2,
+    Cancelled = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PaymentStatus {
     Held = 0,
     Released = 1,

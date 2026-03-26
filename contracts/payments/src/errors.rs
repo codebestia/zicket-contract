@@ -17,4 +17,7 @@ pub enum PaymentError {
     UnauthorizedWithdrawal = 11,
     InvalidOrganizer = 12,
     InvalidPayoutToken = 13,
+    EventNotActive = 14,
+    EventNotCompleted = 15,
+    RefundNotAllowed = 16,
 }

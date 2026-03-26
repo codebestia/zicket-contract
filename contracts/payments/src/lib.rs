@@ -73,6 +73,22 @@ impl PaymentsContract {
         storage::get_owner_tickets(&env, &owner)
     }
 
+    /// Set the current lifecycle status for an event.
+    pub fn set_event_status(
+        env: Env,
+        admin: Address,
+        event_id: Symbol,
+        status: EventStatus,
+    ) -> Result<(), PaymentError> {
+        let stored_admin = storage::get_admin(&env)?;
+        if admin != stored_admin {
+            return Err(PaymentError::Unauthorized);
+        }
+        admin.require_auth();
+        storage::set_event_status(&env, &event_id, &status);
+        Ok(())
+    }
+
     /// Pay for a ticket. Transfers tokens from payer to contract escrow.
     pub fn pay_for_ticket(
         env: Env,
@@ -87,6 +103,12 @@ impl PaymentsContract {
         }
 
         validate_payment_privacy(&env, &event_id)?;
+
+        if let Some(status) = storage::get_event_status(&env, &event_id) {
+            if matches!(status, EventStatus::Completed | EventStatus::Cancelled) {
+                return Err(PaymentError::EventNotActive);
+            }
+        }
 
         let token_address = storage::get_accepted_token(&env)?;
         let contract_address = env.current_contract_address();
@@ -111,7 +133,15 @@ impl PaymentsContract {
         storage::add_event_payment(&env, &event_id, payment_id);
         storage::add_event_revenue(&env, &event_id, amount);
 
-        events::emit_payment_received(&env, payment_id, event_id, payer, amount);
+        events::emit_payment_received(
+            &env,
+            payment_id,
+            event_id,
+            payer,
+            amount,
+            token_address,
+            paid_at,
+        );
 
         let ticket_id = storage::get_next_ticket_id(&env);
         let ticket = Ticket {
@@ -122,7 +152,7 @@ impl PaymentsContract {
         };
         storage::save_ticket(&env, &ticket);
         storage::add_owner_ticket(&env, &payment.payer, ticket_id);
-        events::emit_ticket_issued(&env, ticket_id, payment.event_id, payment.payer);
+        events::emit_ticket_issued(&env, ticket_id, payment.event_id, payment.payer, payment_id);
 
         Ok(payment_id)
     }
@@ -217,8 +247,12 @@ impl PaymentsContract {
             return Err(PaymentError::UnauthorizedWithdrawal);
         }
 
-        let payout_token = storage::get_event_payout_token(&env, &event_id)?;
+        match storage::get_event_status(&env, &event_id) {
+            Some(EventStatus::Completed) => {}
+            _ => return Err(PaymentError::EventNotCompleted),
+        }
 
+        let payout_token = storage::get_event_payout_token(&env, &event_id)?;
         let revenue = storage::get_event_revenue(&env, &event_id);
         if revenue <= 0 {
             return Err(PaymentError::NoRevenue);
@@ -230,7 +264,7 @@ impl PaymentsContract {
         let mut payments_to_release: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::Vec::new(&env);
 
         for i in 0..payment_ids.len() {
-            let pid = payment_ids.get(i).unwrap();
+            let pid = payment_ids.get(i).ok_or(PaymentError::PaymentNotFound)?;
             let payment = storage::get_payment(&env, pid)?;
             if payment.status == PaymentStatus::Held {
                 total += payment.amount;
@@ -246,7 +280,9 @@ impl PaymentsContract {
         token_client.transfer(&env.current_contract_address(), &stored_organizer, &total);
 
         for i in 0..payments_to_release.len() {
-            let mut payment = payments_to_release.get(i).unwrap();
+            let mut payment = payments_to_release
+                .get(i)
+                .ok_or(PaymentError::PaymentNotFound)?;
             payment.status = PaymentStatus::Released;
             storage::update_payment(&env, &payment)?;
         }
