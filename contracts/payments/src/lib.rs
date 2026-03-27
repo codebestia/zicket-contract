@@ -11,6 +11,17 @@ pub use events::*;
 pub use storage::*;
 pub use types::*;
 
+#[derive(Clone)]
+struct PaymentParams {
+    payer: Address,
+    event_id: Symbol,
+    amount: i128,
+    token_address: Address,
+    is_anonymous: bool,
+    is_verified: bool,
+    privacy_level: PaymentPrivacy,
+}
+
 #[contract]
 pub struct PaymentsContract;
 
@@ -33,25 +44,21 @@ fn validate_payment_privacy(
     Ok(())
 }
 
-fn create_payment(
-    env: Env,
-    payer: Address,
-    event_id: Symbol,
-    amount: i128,
-    token_address: Address,
-    is_anonymous: bool,
-    is_verified: bool,
-    privacy_level: PaymentPrivacy,
-) -> Result<u64, PaymentError> {
-    payer.require_auth();
+fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> {
+    params.payer.require_auth();
 
-    if amount <= 0 {
+    if params.amount <= 0 {
         return Err(PaymentError::InvalidAmount);
     }
 
-    validate_payment_privacy(&env, &event_id, is_anonymous, is_verified)?;
+    validate_payment_privacy(
+        &env,
+        &params.event_id,
+        params.is_anonymous,
+        params.is_verified,
+    )?;
 
-    if let Some(status) = storage::get_event_status(&env, &event_id) {
+    if let Some(status) = storage::get_event_status(&env, &params.event_id) {
         if matches!(status, EventStatus::Completed | EventStatus::Cancelled) {
             return Err(PaymentError::EventNotActive);
         }
@@ -59,40 +66,40 @@ fn create_payment(
 
     let contract_address = env.current_contract_address();
 
-    let token_client = token::Client::new(&env, &token_address);
-    token_client.transfer(&payer, &contract_address, &amount);
+    let token_client = token::Client::new(&env, &params.token_address);
+    token_client.transfer(&params.payer, &contract_address, &params.amount);
 
     let payment_id = storage::get_next_payment_id(&env);
     let paid_at = env.ledger().timestamp();
 
     let payment = PaymentRecord {
         payment_id,
-        event_id: event_id.clone(),
-        payer: payer.clone(),
-        amount,
-        token: token_address.clone(),
+        event_id: params.event_id.clone(),
+        payer: params.payer.clone(),
+        amount: params.amount,
+        token: params.token_address.clone(),
         status: PaymentStatus::Held,
         paid_at,
-        privacy_level: privacy_level.clone(),
+        privacy_level: params.privacy_level.clone(),
     };
 
     storage::save_payment(&env, &payment);
-    storage::add_event_payment(&env, &event_id, payment_id);
-    storage::add_event_revenue(&env, &event_id, amount);
+    storage::add_event_payment(&env, &params.event_id, payment_id);
+    storage::add_event_revenue(&env, &params.event_id, params.amount);
 
     // Track token-specific revenue
-    storage::add_event_token_revenue(&env, &event_id, &token_address, amount);
-    storage::add_event_token(&env, &event_id, &token_address);
+    storage::add_event_token_revenue(&env, &params.event_id, &params.token_address, params.amount);
+    storage::add_event_token(&env, &params.event_id, &params.token_address);
 
-    let privacy = storage::get_emission_privacy(&env, &event_id);
+    let privacy = storage::get_emission_privacy(&env, &params.event_id);
 
     events::emit_payment_received(
         &env,
         payment_id,
-        event_id,
-        payer,
-        amount,
-        token_address.clone(),
+        params.event_id,
+        params.payer,
+        params.amount,
+        params.token_address.clone(),
         paid_at,
         &privacy,
     );
@@ -194,13 +201,15 @@ impl PaymentsContract {
     ) -> Result<u64, PaymentError> {
         create_payment(
             env,
-            payer,
-            event_id,
-            amount,
-            token_address,
-            false,
-            false,
-            privacy_level,
+            PaymentParams {
+                payer,
+                event_id,
+                amount,
+                token_address,
+                is_anonymous: false,
+                is_verified: false,
+                privacy_level,
+            },
         )
     }
 
@@ -215,13 +224,15 @@ impl PaymentsContract {
     ) -> Result<u64, PaymentError> {
         create_payment(
             env,
-            payer,
-            event_id,
-            amount,
-            token_address,
-            is_anonymous,
-            is_verified,
-            PaymentPrivacy::Standard,
+            PaymentParams {
+                payer,
+                event_id,
+                amount,
+                token_address,
+                is_anonymous,
+                is_verified,
+                privacy_level: PaymentPrivacy::Standard,
+            },
         )
     }
 
