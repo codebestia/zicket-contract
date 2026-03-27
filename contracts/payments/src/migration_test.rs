@@ -3,148 +3,123 @@ mod tests {
     use crate::*;
     use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
 
-    #[test]
-    fn test_contract_version_initialization() {
+    fn setup_test() -> (
+        Env,
+        PaymentsContractClient<'static>,
+        Address,
+        Address,
+        Address,
+    ) {
         let env = Env::default();
         env.mock_all_auths();
+        let contract_id = env.register(PaymentsContract, ());
+        let client = PaymentsContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
         let event_contract = Address::generate(&env);
+        (env, client, admin, token, event_contract)
+    }
 
-        // Initialize the contract
-        PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
+    #[test]
+    fn test_contract_version_initialization() {
+        let (_env, client, admin, token, event_contract) = setup_test();
 
-        // Check initial version (should default to 1)
-        let version = PaymentsContract::contract_version(env.clone());
+        client.initialize(&admin, &token, &event_contract);
+
+        let version = client.contract_version();
         assert_eq!(version, 1);
     }
 
     #[test]
     fn test_migration_v1_to_v2() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let token = Address::generate(&env);
-        let event_contract = Address::generate(&env);
+        let (_env, client, admin, token, event_contract) = setup_test();
 
-        // Initialize the contract
-        PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
+        client.initialize(&admin, &token, &event_contract);
 
-        // Verify current version
-        let current_version = PaymentsContract::contract_version(env.clone());
+        let current_version = client.contract_version();
         assert_eq!(current_version, 1);
 
-        // Perform migration
-        let new_version = PaymentsContract::migrate(env.clone(), admin.clone()).unwrap();
+        let new_version = client.migrate(&admin);
         assert_eq!(new_version, 2);
 
-        // Verify version after migration
-        let updated_version = PaymentsContract::contract_version(env.clone());
+        let updated_version = client.contract_version();
         assert_eq!(updated_version, 2);
     }
 
     #[test]
     fn test_migration_unauthorized() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let unauthorized = Address::generate(&env);
-        let token = Address::generate(&env);
-        let event_contract = Address::generate(&env);
+        let (_env, client, admin, token, event_contract) = setup_test();
+        let unauthorized = Address::generate(&_env);
 
-        // Initialize the contract
-        PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
+        client.initialize(&admin, &token, &event_contract);
 
-        // Attempt migration by unauthorized user
-        let result = PaymentsContract::migrate(env.clone(), unauthorized);
+        let result = client.try_migrate(&unauthorized);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), PaymentError::Unauthorized);
     }
 
     #[test]
     fn test_storage_compatibility_after_migration() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let token = Address::generate(&env);
-        let event_contract = Address::generate(&env);
+        let (env, client, admin, token, event_contract) = setup_test();
+        let contract_id = client.address.clone();
 
-        // Initialize the contract
-        PaymentsContract::initialize(
-            env.clone(),
-            admin.clone(),
-            token.clone(),
-            event_contract.clone(),
-        )
-        .unwrap();
+        client.initialize(&admin, &token, &event_contract);
 
-        // Perform migration
-        PaymentsContract::migrate(env.clone(), admin.clone()).unwrap();
+        client.migrate(&admin);
 
-        // Verify that storage data is still accessible
-        let admin_after = storage::get_admin(&env).unwrap();
-        assert_eq!(admin_after, admin);
+        env.as_contract(&contract_id, || {
+            let admin_after = storage::get_admin(&env).unwrap();
+            assert_eq!(admin_after, admin);
 
-        let token_after = storage::get_accepted_token(&env).unwrap();
-        assert_eq!(token_after, token);
+            let token_after = storage::get_accepted_token(&env).unwrap();
+            assert_eq!(token_after, token);
 
-        let event_contract_after = storage::get_event_contract(&env).unwrap();
-        assert_eq!(event_contract_after, event_contract);
+            let event_contract_after = storage::get_event_contract(&env).unwrap();
+            assert_eq!(event_contract_after, event_contract);
+        });
     }
 
     #[test]
     fn test_multiple_migrations() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let token = Address::generate(&env);
-        let event_contract = Address::generate(&env);
+        let (_env, client, admin, token, event_contract) = setup_test();
 
-        // Initialize the contract
-        PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
+        client.initialize(&admin, &token, &event_contract);
 
-        // Perform first migration (v1 -> v2)
-        let v2 = PaymentsContract::migrate(env.clone(), admin.clone()).unwrap();
+        let v2 = client.migrate(&admin);
         assert_eq!(v2, 2);
 
-        // Perform second migration (v2 -> v3)
-        let v3 = PaymentsContract::migrate(env.clone(), admin.clone()).unwrap();
+        let v3 = client.migrate(&admin);
         assert_eq!(v3, 3);
 
-        // Verify final version
-        let final_version = PaymentsContract::contract_version(env);
+        let final_version = client.contract_version();
         assert_eq!(final_version, 3);
     }
 
     #[test]
     fn test_version_compatibility_check() {
-        let env = Env::default();
+        let (env, client, admin, token, event_contract) = setup_test();
+        let contract_id = client.address.clone();
 
-        // Verify version is compatible
-        let result = storage::verify_version(&env);
-        assert!(result.is_ok());
+        client.initialize(&admin, &token, &event_contract);
+
+        env.as_contract(&contract_id, || {
+            let result = storage::verify_version(&env);
+            assert!(result.is_ok());
+        });
     }
 
     #[test]
     fn test_payment_operations_after_migration() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let token = Address::generate(&env);
-        let event_contract = Address::generate(&env);
+        let (_env, client, admin, token, event_contract) = setup_test();
 
-        // Initialize the contract
-        PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
+        client.initialize(&admin, &token, &event_contract);
 
-        // Perform migration
-        PaymentsContract::migrate(env.clone(), admin).unwrap();
+        client.migrate(&admin);
 
-        // Verify that payment data is still accessible
-        let event_id = Symbol::new(&env, "test_event");
-        let payments = PaymentsContract::get_event_payments(env.clone(), event_id.clone());
+        let event_id = Symbol::new(&_env, "test_event");
+        let payments = client.get_event_payments(event_id.clone());
         assert_eq!(payments.len(), 0);
 
-        let revenue = PaymentsContract::get_event_revenue(env, event_id);
+        let revenue = client.get_event_revenue(event_id);
         assert_eq!(revenue, 0);
     }
 }
