@@ -1002,3 +1002,111 @@ fn test_pay_with_expired_reservation_fails() {
     let result = client.try_register_for_event(&attendee, &event_id, &0, &false);
     assert_eq!(result.err(), Some(Ok(EventError::ReservationExpired)));
 }
+
+// ============================================================
+// Issue #53: Privacy-Preserving Event Emissions Tests
+// ============================================================
+
+#[test]
+fn test_privacy_default_is_standard() {
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let event_id = setup_event(&env, &client, &organizer);
+
+    let level = client.get_event_privacy(&event_id);
+    assert_eq!(level, PrivacyLevel::Standard);
+}
+
+#[test]
+fn test_set_privacy_level_standard() {
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let event_id = setup_event(&env, &client, &organizer);
+
+    client.set_event_privacy(&organizer, &event_id, &PrivacyLevel::Standard);
+    assert_eq!(client.get_event_privacy(&event_id), PrivacyLevel::Standard);
+}
+
+#[test]
+fn test_set_privacy_level_private() {
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let event_id = setup_event(&env, &client, &organizer);
+
+    client.set_event_privacy(&organizer, &event_id, &PrivacyLevel::Private);
+    assert_eq!(client.get_event_privacy(&event_id), PrivacyLevel::Private);
+}
+
+#[test]
+fn test_set_privacy_level_anonymous() {
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let event_id = setup_event(&env, &client, &organizer);
+
+    client.set_event_privacy(&organizer, &event_id, &PrivacyLevel::Anonymous);
+    assert_eq!(client.get_event_privacy(&event_id), PrivacyLevel::Anonymous);
+}
+
+#[test]
+fn test_set_privacy_unauthorized() {
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let contract_id = env.register(EventContract, ());
+    let client = EventContractClient::new(&env, &contract_id);
+    let organizer = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let event_id = setup_event(&env, &client, &organizer);
+
+    let result = client.try_set_event_privacy(&attacker, &event_id, &PrivacyLevel::Anonymous);
+    assert_eq!(result.err(), Some(Ok(EventError::Unauthorized)));
+}
+
+#[test]
+fn test_mask_address_standard_returns_some() {
+    use crate::events::mask_address;
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let addr = Address::generate(&env);
+    let result = mask_address(&env, &addr, &PrivacyLevel::Standard);
+    assert_eq!(result, Some(addr));
+}
+
+#[test]
+fn test_mask_address_private_returns_none() {
+    use crate::events::mask_address;
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let addr = Address::generate(&env);
+    let result = mask_address(&env, &addr, &PrivacyLevel::Private);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_mask_address_anonymous_returns_none() {
+    use crate::events::mask_address;
+    use crate::types::PrivacyLevel;
+
+    let env = setup_env();
+    let addr = Address::generate(&env);
+    let result = mask_address(&env, &addr, &PrivacyLevel::Anonymous);
+    assert!(result.is_none());
+}

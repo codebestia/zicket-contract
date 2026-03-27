@@ -80,6 +80,8 @@ fn create_payment(
     storage::add_event_payment(&env, &event_id, payment_id);
     storage::add_event_revenue(&env, &event_id, amount);
 
+    let privacy = storage::get_emission_privacy(&env, &event_id);
+
     events::emit_payment_received(
         &env,
         payment_id,
@@ -88,7 +90,7 @@ fn create_payment(
         amount,
         token_address.clone(),
         paid_at,
-        privacy_level,
+        &privacy,
     );
 
     let ticket_id = storage::get_next_ticket_id(&env);
@@ -100,7 +102,14 @@ fn create_payment(
     };
     storage::save_ticket(&env, &ticket);
     storage::add_owner_ticket(&env, &payment.payer, ticket_id);
-    events::emit_ticket_issued(&env, ticket_id, payment.event_id, payment.payer, payment_id);
+    events::emit_ticket_issued(
+        &env,
+        ticket_id,
+        payment.event_id,
+        payment.payer,
+        payment_id,
+        &privacy,
+    );
 
     Ok(payment_id)
 }
@@ -295,9 +304,10 @@ impl PaymentsContract {
         events::emit_payment_refunded(
             &env,
             payment_id,
-            payment.event_id,
+            payment.event_id.clone(),
             payment.payer,
             payment.amount,
+            &storage::get_emission_privacy(&env, &payment.event_id),
         );
 
         Ok(())
@@ -353,7 +363,13 @@ impl PaymentsContract {
 
         storage::set_event_revenue(&env, &event_id, 0);
 
-        events::emit_revenue_withdrawn(&env, event_id, stored_organizer, total);
+        events::emit_revenue_withdrawn(
+            &env,
+            event_id.clone(),
+            stored_organizer,
+            total,
+            &storage::get_emission_privacy(&env, &event_id),
+        );
 
         Ok(())
     }
@@ -396,6 +412,27 @@ impl PaymentsContract {
         event_id: Symbol,
     ) -> soroban_sdk::Vec<WithdrawalRecord> {
         storage::get_withdrawal_history(&env, &event_id)
+    }
+
+    /// Set the privacy level for event emissions. Admin only.
+    pub fn set_event_privacy(
+        env: Env,
+        admin: Address,
+        event_id: Symbol,
+        level: PrivacyLevel,
+    ) -> Result<(), PaymentError> {
+        let stored_admin = storage::get_admin(&env)?;
+        if admin != stored_admin {
+            return Err(PaymentError::Unauthorized);
+        }
+        admin.require_auth();
+        storage::set_emission_privacy(&env, &event_id, &level);
+        Ok(())
+    }
+
+    /// Get the privacy level for event emissions.
+    pub fn get_event_privacy(env: Env, event_id: Symbol) -> PrivacyLevel {
+        storage::get_emission_privacy(&env, &event_id)
     }
 }
 

@@ -127,7 +127,8 @@ impl EventContract {
                 &params.requires_verification,
             );
         }
-        emit_event_created(&env, &params);
+        let privacy = storage::get_event_privacy(&env, &params.event_id);
+        emit_event_created(&env, &params, &privacy);
 
         Ok(event)
     }
@@ -605,7 +606,8 @@ impl EventContract {
         tier.sold += 1;
         event.tiers.set(index, tier.clone());
         update_event(&env, &event_id, &event)?;
-        emit_registration(&env, &event_id, &attendee, tier_id, tier.sold);
+        let privacy = storage::get_event_privacy(&env, &event_id);
+        emit_registration(&env, &event_id, &attendee, tier_id, tier.sold, &privacy);
 
         Ok(())
     }
@@ -665,6 +667,29 @@ impl EventContract {
         let payments_contract = storage::get_payments_contract(&env)?;
         let payments_client = PaymentsContractClient::new(&env, &payments_contract);
         Ok(payments_client.get_withdrawal_history(&event_id))
+    }
+
+    /// Set the privacy level for an event. Only the organizer can change this.
+    pub fn set_event_privacy(
+        env: Env,
+        organizer: Address,
+        event_id: Symbol,
+        level: PrivacyLevel,
+    ) -> Result<(), EventError> {
+        organizer.require_auth();
+
+        let event = storage::get_event(&env, &event_id)?;
+        if event.organizer != organizer {
+            return Err(EventError::Unauthorized);
+        }
+
+        storage::set_event_privacy(&env, &event_id, &level);
+        Ok(())
+    }
+
+    /// Get the privacy level for an event.
+    pub fn get_event_privacy(env: Env, event_id: Symbol) -> PrivacyLevel {
+        storage::get_event_privacy(&env, &event_id)
     }
 }
 

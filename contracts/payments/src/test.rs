@@ -540,6 +540,67 @@ fn test_multiple_withdrawals_tracked() {
     assert_eq!(history.get(1).unwrap().amount, amount);
 }
 
+// ============================================================
+// Issue #53: Privacy-Preserving Event Emissions Tests
+// ============================================================
+
+#[test]
+fn test_payments_privacy_default_is_standard() {
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let event_id = symbol_short!("EVENT1");
+
+    let level = client.get_event_privacy(&event_id);
+    assert_eq!(level, PrivacyLevel::Standard);
+}
+
+#[test]
+fn test_payments_set_privacy_level_private() {
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let event_id = symbol_short!("EVENT1");
+
+    client.set_event_privacy(&admin, &event_id, &PrivacyLevel::Private);
+    assert_eq!(client.get_event_privacy(&event_id), PrivacyLevel::Private);
+}
+
+#[test]
+fn test_payments_set_privacy_level_anonymous() {
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let event_id = symbol_short!("EVENT1");
+
+    client.set_event_privacy(&admin, &event_id, &PrivacyLevel::Anonymous);
+    assert_eq!(client.get_event_privacy(&event_id), PrivacyLevel::Anonymous);
+}
+
+#[test]
+fn test_payments_set_privacy_unauthorized() {
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let intruder = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+
+    let result = client.try_set_event_privacy(&intruder, &event_id, &PrivacyLevel::Anonymous);
+    assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
+}
+
 #[test]
 fn test_pay_for_ticket_anonymous_privacy() {
     let env = Env::default();
@@ -684,6 +745,39 @@ fn test_refund_unauthorized() {
     let payment_id = client.pay_for_ticket(&payer, &event_id, &amount, &PaymentPrivacy::Standard);
     let result = client.try_refund(&not_admin, &payment_id);
     assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
+}
+
+#[test]
+fn test_mask_address_standard_returns_some() {
+    use super::events::mask_address;
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    let addr = Address::generate(&env);
+    let result = mask_address(&env, &addr, &PrivacyLevel::Standard);
+    assert_eq!(result, Some(addr));
+}
+
+#[test]
+fn test_mask_address_private_returns_none() {
+    use super::events::mask_address;
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    let addr = Address::generate(&env);
+    let result = mask_address(&env, &addr, &PrivacyLevel::Private);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_mask_address_anonymous_returns_none() {
+    use super::events::mask_address;
+    use super::PrivacyLevel;
+
+    let env = Env::default();
+    let addr = Address::generate(&env);
+    let result = mask_address(&env, &addr, &PrivacyLevel::Anonymous);
+    assert!(result.is_none());
 }
 
 #[test]

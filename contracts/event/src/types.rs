@@ -2,6 +2,14 @@ use soroban_sdk::{contracttype, Address, String, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PrivacyLevel {
+    Standard = 0,
+    Private = 1,
+    Anonymous = 2,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EventStatus {
     Upcoming = 0,
     Active = 1,
