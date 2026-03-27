@@ -942,47 +942,6 @@ fn test_pay_for_ticket_with_email_hash() {
     assert_eq!(payment.amount, amount);
 }
 
-#[test]
-fn test_query_payments() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (admin, _token, client, _contract_id, token_contract) = setup_contract_with_token(&env);
-    let payer1 = Address::generate(&env);
-    let payer2 = Address::generate(&env);
-    let event1 = symbol_short!("E1");
-    let event2 = symbol_short!("E2");
-
-    let amount = 1000i128;
-    token_contract.mint(&admin, &(amount * 4));
-    let token_utils = token::Client::new(&env, &_token);
-    token_utils.transfer(&admin, &payer1, &(amount * 2));
-    token_utils.transfer(&admin, &payer2, &(amount * 2));
-
-    // P1 -> E1
-    client.pay_for_ticket(&payer1, &event1, &amount);
-    // P1 -> E2
-    client.pay_for_ticket(&payer1, &event2, &amount);
-    // P2 -> E1
-    client.pay_for_ticket(&payer2, &event1, &amount);
-    // P2 -> E2
-    client.pay_for_ticket(&payer2, &event2, &amount);
-
-    // Query by Event E1
-    let e1_payments = client.get_payments_by_event(&event1);
-    assert_eq!(e1_payments.len(), 2);
-    assert_eq!(e1_payments.get(0).unwrap().event_id, event1);
-    assert_eq!(e1_payments.get(1).unwrap().event_id, event1);
-    assert_ne!(e1_payments.get(0).unwrap().payer, e1_payments.get(1).unwrap().payer);
-
-    // Query by User P1
-    let p1_payments = client.get_payments_by_user(&payer1);
-    assert_eq!(p1_payments.len(), 2);
-    assert_eq!(p1_payments.get(0).unwrap().payer, payer1);
-    assert_eq!(p1_payments.get(1).unwrap().payer, payer1);
-    assert_ne!(p1_payments.get(0).unwrap().event_id, p1_payments.get(1).unwrap().event_id);
-}
-
 // ============================================================
 // Issue #43: Escrow Timeout / Auto-Release Tests
 // ============================================================

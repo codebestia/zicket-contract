@@ -280,10 +280,6 @@ impl PaymentsContract {
         }
         event_contract.require_auth();
 
-        storage::save_payment(&env, &payment);
-        storage::add_event_payment(&env, &event_id, payment_id);
-        storage::add_payer_payment(&env, &payer, payment_id);
-        storage::add_event_revenue(&env, &event_id, amount);
         let accepted_token = storage::get_accepted_token(&env)?;
         if payout_token != accepted_token {
             return Err(PaymentError::InvalidPayoutToken);
