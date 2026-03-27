@@ -6,6 +6,9 @@ mod events;
 mod storage;
 mod types;
 
+#[cfg(test)]
+mod migration_test;
+
 pub use errors::*;
 pub use events::*;
 pub use storage::*;
@@ -507,6 +510,41 @@ impl PaymentsContract {
     /// Get the privacy level for event emissions.
     pub fn get_event_privacy(env: Env, event_id: Symbol) -> PrivacyLevel {
         storage::get_emission_privacy(&env, &event_id)
+    }
+
+    /// Get the current contract version.
+    pub fn contract_version(env: Env) -> u32 {
+        storage::get_contract_version(&env)
+    }
+
+    /// Migrate the contract to a new version. Only admin can call this.
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, PaymentError> {
+        admin.require_auth();
+
+        let current_admin = storage::get_admin(&env)?;
+        if current_admin != admin {
+            return Err(PaymentError::Unauthorized);
+        }
+
+        let current_version = storage::get_contract_version(&env);
+        let new_version = current_version + 1;
+
+        // Perform any necessary migrations based on version transitions
+        match current_version {
+            0 => {
+                // First migration: initialize version tracking
+                storage::set_contract_version(&env, 1);
+            }
+            1 => {
+                // Future migrations can be added here
+                storage::set_contract_version(&env, 2);
+            }
+            _ => {
+                return Err(PaymentError::UnsupportedVersion);
+            }
+        }
+
+        Ok(new_version)
     }
 }
 
