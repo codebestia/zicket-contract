@@ -33,8 +33,10 @@ fn validate_payment_privacy(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_payment(
     env: Env,
+    nonce: u64,
     payer: Address,
     event_id: Symbol,
     amount: i128,
@@ -43,6 +45,10 @@ fn create_payment(
     privacy_level: PaymentPrivacy,
 ) -> Result<u64, PaymentError> {
     payer.require_auth();
+
+    if storage::has_nonce(&env, &payer, nonce) {
+        return Err(PaymentError::DuplicateRequest);
+    }
 
     if amount <= 0 {
         return Err(PaymentError::InvalidAmount);
@@ -78,6 +84,7 @@ fn create_payment(
 
     storage::save_payment(&env, &payment);
     storage::add_event_payment(&env, &event_id, payment_id);
+    storage::set_nonce(&env, &payer, nonce);
     storage::add_event_revenue(&env, &event_id, amount);
 
     let privacy = storage::get_emission_privacy(&env, &event_id);
@@ -182,16 +189,27 @@ impl PaymentsContract {
     /// Pay for a ticket. Transfers tokens from payer to contract escrow.
     pub fn pay_for_ticket(
         env: Env,
+        nonce: u64,
         payer: Address,
         event_id: Symbol,
         amount: i128,
         privacy_level: PaymentPrivacy,
     ) -> Result<u64, PaymentError> {
-        create_payment(env, payer, event_id, amount, false, false, privacy_level)
+        create_payment(
+            env,
+            nonce,
+            payer,
+            event_id,
+            amount,
+            false,
+            false,
+            privacy_level,
+        )
     }
 
     pub fn pay_for_ticket_with_options(
         env: Env,
+        nonce: u64,
         payer: Address,
         event_id: Symbol,
         amount: i128,
@@ -200,6 +218,7 @@ impl PaymentsContract {
     ) -> Result<u64, PaymentError> {
         create_payment(
             env,
+            nonce,
             payer,
             event_id,
             amount,

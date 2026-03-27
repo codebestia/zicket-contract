@@ -25,4 +25,5 @@ pub enum PaymentError {
     EscrowNotExpired = 19,
     EscrowAlreadyReleased = 20,
     EscrowNotConfigured = 21,
+    DuplicateRequest = 22,
 }

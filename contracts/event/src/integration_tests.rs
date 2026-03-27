@@ -83,7 +83,7 @@ fn test_registration_cross_contract_happy_path() {
         event_id.clone(),
     );
 
-    event_client.register_for_event(&attendee, &event_id, &0, &false);
+    event_client.register_for_event(&1, &attendee, &event_id, &0, &false);
 
     let attendee_balance = token_client.balance(&attendee);
     assert_eq!(attendee_balance, 0);
@@ -148,7 +148,7 @@ fn test_registration_reverts_if_minting_fails() {
         event_id.clone(),
     );
 
-    let result = event_client.try_register_for_event(&attendee, &event_id, &0, &false);
+    let result = event_client.try_register_for_event(&1, &attendee, &event_id, &0, &false);
     assert!(result.is_err());
 
     let attendee_balance = token_client.balance(&attendee);
@@ -207,8 +207,8 @@ fn test_cancel_event_triggers_refunds() {
         event_id.clone(),
     );
 
-    event_client.register_for_event(&attendee1, &event_id, &0, &false);
-    event_client.register_for_event(&attendee2, &event_id, &0, &false);
+    event_client.register_for_event(&1, &attendee1, &event_id, &0, &false);
+    event_client.register_for_event(&2, &attendee2, &event_id, &0, &false);
 
     assert_eq!(token_client.balance(&attendee1), 0);
     assert_eq!(token_client.balance(&attendee2), 0);
@@ -271,7 +271,7 @@ fn test_withdraw_revenue_integration() {
     );
 
     // Register attendee
-    event_client.register_for_event(&attendee, &event_id, &0, &false);
+    event_client.register_for_event(&1, &attendee, &event_id, &0, &false);
     assert_eq!(token_client.balance(&payments_contract_id), price);
 
     // Complete event to allow withdrawal

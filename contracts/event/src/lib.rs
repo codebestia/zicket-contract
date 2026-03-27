@@ -524,6 +524,7 @@ impl EventContract {
 
     pub fn register_for_event(
         env: Env,
+        nonce: u64,
         attendee: Address,
         event_id: Symbol,
         tier_id: u32,
@@ -584,6 +585,7 @@ impl EventContract {
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
             payments_client.pay_for_ticket(
+                &nonce,
                 &attendee,
                 &event_id,
                 &tier.price,
