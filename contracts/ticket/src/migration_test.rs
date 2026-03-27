@@ -6,6 +6,7 @@ mod tests {
     #[test]
     fn test_contract_version_initialization() {
         let env = Env::default();
+        env.mock_all_auths();
 
         // Check initial version (should default to 1)
         let version = TicketContract::contract_version(env.clone());
@@ -15,6 +16,7 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
+        env.mock_all_auths();
         let caller = Address::generate(&env);
 
         // Verify current version
@@ -33,6 +35,7 @@ mod tests {
     #[test]
     fn test_migration_requires_auth() {
         let env = Env::default();
+        env.mock_all_auths();
         let caller = Address::generate(&env);
 
         // Perform migration (requires caller auth)
@@ -45,6 +48,7 @@ mod tests {
     #[test]
     fn test_multiple_migrations() {
         let env = Env::default();
+        env.mock_all_auths();
         let caller = Address::generate(&env);
 
         // Perform first migration (v1 -> v2)
@@ -63,6 +67,7 @@ mod tests {
     #[test]
     fn test_version_compatibility_check() {
         let env = Env::default();
+        env.mock_all_auths();
 
         // Verify version is compatible
         let result = storage::verify_version(&env);
@@ -72,6 +77,7 @@ mod tests {
     #[test]
     fn test_ticket_operations_after_migration() {
         let env = Env::default();
+        env.mock_all_auths();
         let caller = Address::generate(&env);
 
         // Perform migration

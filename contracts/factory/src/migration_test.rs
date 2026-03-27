@@ -6,6 +6,7 @@ mod tests {
     #[test]
     fn test_contract_version_initialization() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
 
         // Initialize the contract
@@ -26,6 +27,7 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
 
         // Initialize the contract
@@ -54,6 +56,7 @@ mod tests {
     #[test]
     fn test_migration_unauthorized() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let unauthorized = Address::generate(&env);
 
@@ -76,6 +79,7 @@ mod tests {
     #[test]
     fn test_storage_compatibility_after_migration() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let event_wasm = BytesN::from_array(&env, &[0u8; 32]);
         let ticket_contract = Address::generate(&env);
@@ -111,6 +115,7 @@ mod tests {
     #[test]
     fn test_event_deployment_after_migration() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
 
         // Initialize the contract

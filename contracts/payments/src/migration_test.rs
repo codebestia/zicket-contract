@@ -6,6 +6,7 @@ mod tests {
     #[test]
     fn test_contract_version_initialization() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
         let event_contract = Address::generate(&env);
@@ -21,6 +22,7 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
         let event_contract = Address::generate(&env);
@@ -44,6 +46,7 @@ mod tests {
     #[test]
     fn test_migration_unauthorized() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let unauthorized = Address::generate(&env);
         let token = Address::generate(&env);
@@ -61,6 +64,7 @@ mod tests {
     #[test]
     fn test_storage_compatibility_after_migration() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
         let event_contract = Address::generate(&env);
@@ -91,6 +95,7 @@ mod tests {
     #[test]
     fn test_multiple_migrations() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
         let event_contract = Address::generate(&env);
@@ -123,6 +128,7 @@ mod tests {
     #[test]
     fn test_payment_operations_after_migration() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
         let event_contract = Address::generate(&env);

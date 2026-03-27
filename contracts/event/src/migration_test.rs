@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
+    use soroban_sdk::{testutils::Address as _, Address, Env};
 
     #[test]
     fn test_contract_version_initialization() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
 
         // Initialize the contract
@@ -25,6 +26,7 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
 
         // Initialize the contract
@@ -52,6 +54,7 @@ mod tests {
     #[test]
     fn test_migration_unauthorized() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let unauthorized = Address::generate(&env);
 
@@ -73,6 +76,7 @@ mod tests {
     #[test]
     fn test_storage_compatibility_after_migration() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let ticket_contract = Address::generate(&env);
         let payments_contract = Address::generate(&env);
@@ -103,6 +107,7 @@ mod tests {
     #[test]
     fn test_multiple_migrations() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
 
         // Initialize the contract
@@ -130,6 +135,7 @@ mod tests {
     #[test]
     fn test_version_compatibility_check() {
         let env = Env::default();
+        env.mock_all_auths();
 
         // Verify version is compatible
         let result = storage::verify_version(&env);

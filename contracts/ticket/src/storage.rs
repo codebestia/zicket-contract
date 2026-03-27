@@ -5,6 +5,7 @@ use crate::types::Ticket;
 
 const TTL_THRESHOLD: u32 = 60 * 60 * 24 * 30;
 const TTL_BUMP: u32 = 60 * 60 * 24 * 30 * 2;
+#[allow(dead_code)]
 const CURRENT_VERSION: u32 = 1;
 
 #[contracttype]
@@ -63,6 +64,7 @@ pub fn set_contract_version(env: &Env, version: u32) {
 }
 
 /// Verify that the contract version is supported. Returns error if version is not compatible.
+#[allow(dead_code)]
 pub fn verify_version(env: &Env) -> Result<(), TicketError> {
     let version = get_contract_version(env);
     if version > CURRENT_VERSION {
