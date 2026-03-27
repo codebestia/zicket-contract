@@ -6,9 +6,9 @@ mod tests {
     #[test]
     fn test_contract_version_initialization() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let token = Address::random(&env);
-        let event_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let event_contract = Address::generate(&env);
 
         // Initialize the contract
         PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
@@ -21,9 +21,9 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let token = Address::random(&env);
-        let event_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let event_contract = Address::generate(&env);
 
         // Initialize the contract
         PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
@@ -44,10 +44,10 @@ mod tests {
     #[test]
     fn test_migration_unauthorized() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let unauthorized = Address::random(&env);
-        let token = Address::random(&env);
-        let event_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let unauthorized = Address::generate(&env);
+        let token = Address::generate(&env);
+        let event_contract = Address::generate(&env);
 
         // Initialize the contract
         PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
@@ -61,13 +61,18 @@ mod tests {
     #[test]
     fn test_storage_compatibility_after_migration() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let token = Address::random(&env);
-        let event_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let event_contract = Address::generate(&env);
 
         // Initialize the contract
-        PaymentsContract::initialize(env.clone(), admin.clone(), token.clone(), event_contract.clone())
-            .unwrap();
+        PaymentsContract::initialize(
+            env.clone(),
+            admin.clone(),
+            token.clone(),
+            event_contract.clone(),
+        )
+        .unwrap();
 
         // Perform migration
         PaymentsContract::migrate(env.clone(), admin.clone()).unwrap();
@@ -86,9 +91,9 @@ mod tests {
     #[test]
     fn test_multiple_migrations() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let token = Address::random(&env);
-        let event_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let event_contract = Address::generate(&env);
 
         // Initialize the contract
         PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();
@@ -118,9 +123,9 @@ mod tests {
     #[test]
     fn test_payment_operations_after_migration() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let token = Address::random(&env);
-        let event_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let event_contract = Address::generate(&env);
 
         // Initialize the contract
         PaymentsContract::initialize(env.clone(), admin.clone(), token, event_contract).unwrap();

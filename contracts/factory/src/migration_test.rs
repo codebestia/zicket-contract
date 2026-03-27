@@ -1,20 +1,20 @@
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, Symbol};
+    use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
 
     #[test]
     fn test_contract_version_initialization() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         // Initialize the contract
         FactoryContract::initialize(
             env.clone(),
             admin.clone(),
-            BytesN::random(&env),
-            Address::random(&env),
-            Address::random(&env),
+            BytesN::from_array(&env, &[0u8; 32]),
+            Address::generate(&env),
+            Address::generate(&env),
         )
         .unwrap();
 
@@ -26,15 +26,15 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         // Initialize the contract
         FactoryContract::initialize(
             env.clone(),
             admin.clone(),
-            BytesN::random(&env),
-            Address::random(&env),
-            Address::random(&env),
+            BytesN::from_array(&env, &[0u8; 32]),
+            Address::generate(&env),
+            Address::generate(&env),
         )
         .unwrap();
 
@@ -54,16 +54,16 @@ mod tests {
     #[test]
     fn test_migration_unauthorized() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let unauthorized = Address::random(&env);
+        let admin = Address::generate(&env);
+        let unauthorized = Address::generate(&env);
 
         // Initialize the contract
         FactoryContract::initialize(
             env.clone(),
             admin.clone(),
-            BytesN::random(&env),
-            Address::random(&env),
-            Address::random(&env),
+            BytesN::from_array(&env, &[0u8; 32]),
+            Address::generate(&env),
+            Address::generate(&env),
         )
         .unwrap();
 
@@ -76,10 +76,10 @@ mod tests {
     #[test]
     fn test_storage_compatibility_after_migration() {
         let env = Env::default();
-        let admin = Address::random(&env);
-        let event_wasm = BytesN::random(&env);
-        let ticket_contract = Address::random(&env);
-        let payments_contract = Address::random(&env);
+        let admin = Address::generate(&env);
+        let event_wasm = BytesN::from_array(&env, &[0u8; 32]);
+        let ticket_contract = Address::generate(&env);
+        let payments_contract = Address::generate(&env);
 
         // Initialize the contract
         FactoryContract::initialize(
@@ -111,15 +111,15 @@ mod tests {
     #[test]
     fn test_event_deployment_after_migration() {
         let env = Env::default();
-        let admin = Address::random(&env);
+        let admin = Address::generate(&env);
 
         // Initialize the contract
         FactoryContract::initialize(
             env.clone(),
             admin.clone(),
-            BytesN::random(&env),
-            Address::random(&env),
-            Address::random(&env),
+            BytesN::from_array(&env, &[0u8; 32]),
+            Address::generate(&env),
+            Address::generate(&env),
         )
         .unwrap();
 
@@ -130,7 +130,7 @@ mod tests {
         let all_events = FactoryContract::get_all_events(env.clone());
         assert_eq!(all_events.len(), 0);
 
-        let organizer = Address::random(&env);
+        let organizer = Address::generate(&env);
         let organizer_events = FactoryContract::get_organizer_events(env, organizer);
         assert_eq!(organizer_events.len(), 0);
     }

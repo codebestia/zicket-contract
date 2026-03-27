@@ -15,7 +15,7 @@ mod tests {
     #[test]
     fn test_migration_v1_to_v2() {
         let env = Env::default();
-        let caller = Address::random(&env);
+        let caller = Address::generate(&env);
 
         // Verify current version
         let current_version = TicketContract::contract_version(env.clone());
@@ -33,7 +33,7 @@ mod tests {
     #[test]
     fn test_migration_requires_auth() {
         let env = Env::default();
-        let caller = Address::random(&env);
+        let caller = Address::generate(&env);
 
         // Perform migration (requires caller auth)
         let result = TicketContract::migrate(env.clone(), caller.clone());
@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn test_multiple_migrations() {
         let env = Env::default();
-        let caller = Address::random(&env);
+        let caller = Address::generate(&env);
 
         // Perform first migration (v1 -> v2)
         let v2 = TicketContract::migrate(env.clone(), caller.clone()).unwrap();
@@ -72,18 +72,18 @@ mod tests {
     #[test]
     fn test_ticket_operations_after_migration() {
         let env = Env::default();
-        let caller = Address::random(&env);
+        let caller = Address::generate(&env);
 
         // Perform migration
         TicketContract::migrate(env.clone(), caller).unwrap();
 
         // Verify that ticket data is still accessible
-        let owner = Address::random(&env);
+        let owner = Address::generate(&env);
         let tickets = TicketContract::get_tickets_by_owner(env.clone(), owner);
         assert_eq!(tickets.len(), 0);
 
         let event_id = Symbol::new(&env, "test_event");
-        let event_tickets = TicketContract::get_tickets_by_event(env, event_id);
+        let event_tickets = TicketContract::get_event_tickets(env, event_id);
         assert_eq!(event_tickets.len(), 0);
     }
 }
