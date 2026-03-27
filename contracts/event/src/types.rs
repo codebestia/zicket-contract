@@ -33,6 +33,7 @@ pub struct TicketTierParams {
 pub struct Event {
     pub event_id: Symbol,
     pub organizer: Address,
+    pub payout_token: Address,
     pub name: String,
     pub description: String,
     pub venue: String,
@@ -48,6 +49,7 @@ pub struct Event {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateEventParams {
     pub organizer: Address,
+    pub payout_token: Address,
     pub event_id: Symbol,
     pub name: String,
     pub description: String,
