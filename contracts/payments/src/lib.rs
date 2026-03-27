@@ -576,6 +576,10 @@ impl PaymentsContract {
                 // Future migrations can be added here
                 storage::set_contract_version(&env, 2);
             }
+            2 => {
+                // v2 -> v3 migration
+                storage::set_contract_version(&env, 3);
+            }
             _ => {
                 return Err(PaymentError::UnsupportedVersion);
             }
