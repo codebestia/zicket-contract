@@ -1,12 +1,5 @@
+pub use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 use soroban_sdk::{contracttype, Address, String, Symbol, Vec};
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PrivacyLevel {
-    Standard = 0,
-    Private = 1,
-    Anonymous = 2,
-}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,6 +44,7 @@ pub struct Event {
     pub tiers: Vec<TicketTier>,
     pub status: EventStatus,
     pub created_at: u64,
+    pub privacy_level: PrivacyLevel,
 }
 
 #[contracttype]
@@ -66,6 +60,7 @@ pub struct CreateEventParams {
     pub initial_tiers: Vec<TicketTierParams>,
     pub allow_anonymous: bool,
     pub requires_verification: bool,
+    pub privacy_level: PrivacyLevel,
 }
 
 #[contracttype]

@@ -1,20 +1,11 @@
+use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 use soroban_sdk::{contractevent, Address, Env, Symbol};
-
-use crate::types::PrivacyLevel;
-
-/// Returns Some(address) for Standard, None for Private or Anonymous.
-pub fn mask_address(_env: &Env, address: &Address, level: &PrivacyLevel) -> Option<Address> {
-    match level {
-        PrivacyLevel::Standard => Some(address.clone()),
-        PrivacyLevel::Private | PrivacyLevel::Anonymous => None,
-    }
-}
 
 #[contractevent(data_format = "vec", topics = ["payment"])]
 pub struct PaymentReceived {
     pub payment_id: u64,
     pub event_id: Symbol,
-    pub payer: Option<Address>,
+    pub payer: MaskedAddress,
     pub amount: i128,
     pub token: Address,
     pub paid_at: u64,
@@ -24,7 +15,7 @@ pub struct PaymentReceived {
 pub struct PaymentRefunded {
     pub payment_id: u64,
     pub event_id: Symbol,
-    pub payer: Option<Address>,
+    pub payer: MaskedAddress,
     pub amount: i128,
     pub refunded_at: u64,
 }
@@ -33,16 +24,23 @@ pub struct PaymentRefunded {
 pub struct TicketIssued {
     pub ticket_id: u64,
     pub event_id: Symbol,
-    pub owner: Option<Address>,
+    pub owner: MaskedAddress,
     pub payment_id: u64,
 }
 
 #[contractevent(data_format = "vec", topics = ["withdrawal"])]
 pub struct RevenueWithdrawn {
     pub event_id: Symbol,
-    pub organizer: Option<Address>,
+    pub organizer: MaskedAddress,
     pub amount: i128,
     pub withdrawn_at: u64,
+}
+
+#[contractevent(data_format = "vec", topics = ["escrow_released"])]
+pub struct EscrowAutoReleased {
+    pub event_id: Symbol,
+    pub organizer: Address,
+    pub amount: i128,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -59,7 +57,7 @@ pub fn emit_payment_received(
     PaymentReceived {
         payment_id,
         event_id,
-        payer: mask_address(env, &payer, level),
+        payer: mask_address(env, &payer, level.clone()),
         amount,
         token,
         paid_at,
@@ -76,7 +74,7 @@ pub fn emit_revenue_withdrawn(
 ) {
     RevenueWithdrawn {
         event_id,
-        organizer: mask_address(env, &organizer, level),
+        organizer: mask_address(env, &organizer, level.clone()),
         amount,
         withdrawn_at: env.ledger().timestamp(),
     }
@@ -94,7 +92,7 @@ pub fn emit_payment_refunded(
     PaymentRefunded {
         payment_id,
         event_id,
-        payer: mask_address(env, &payer, level),
+        payer: mask_address(env, &payer, level.clone()),
         amount,
         refunded_at: env.ledger().timestamp(),
     }
@@ -112,17 +110,10 @@ pub fn emit_ticket_issued(
     TicketIssued {
         ticket_id,
         event_id,
-        owner: mask_address(env, &owner, level),
+        owner: mask_address(env, &owner, level.clone()),
         payment_id,
     }
     .publish(env);
-}
-
-#[contractevent(data_format = "vec", topics = ["escrow_released"])]
-pub struct EscrowAutoReleased {
-    pub event_id: Symbol,
-    pub organizer: Address,
-    pub amount: i128,
 }
 
 pub fn emit_escrow_auto_released(env: &Env, event_id: Symbol, organizer: Address, amount: i128) {

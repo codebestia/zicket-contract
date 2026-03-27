@@ -1,5 +1,7 @@
 use crate::errors::EventError;
-use crate::types::{CreateEventParams, EventStatus, TicketTierParams, UpdateEventParams};
+use crate::types::{
+    CreateEventParams, EventStatus, PrivacyLevel, TicketTierParams, UpdateEventParams,
+};
 use crate::{EventContract, EventContractClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token, Address, Env, String, Symbol};
@@ -76,6 +78,7 @@ fn test_create_event_duplicate_fails() {
         initial_tiers: initial_tiers.clone(),
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     // First creation succeeds
@@ -93,6 +96,7 @@ fn test_create_event_duplicate_fails() {
         initial_tiers,
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
     let result = client.try_create_event(&params_dup);
     assert_eq!(result.err(), Some(Ok(EventError::EventAlreadyExists)));
@@ -123,6 +127,7 @@ fn test_create_event_invalid_tickets_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -154,6 +159,7 @@ fn test_create_event_too_many_tickets_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -185,6 +191,7 @@ fn test_create_event_past_date_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -216,6 +223,7 @@ fn test_create_event_date_less_than_24h_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -247,6 +255,7 @@ fn test_create_event_negative_price_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -278,6 +287,7 @@ fn test_create_event_empty_name_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -309,6 +319,7 @@ fn test_create_event_empty_venue_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -706,6 +717,7 @@ fn test_register_for_event_sold_out_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
     client.create_event(&params);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
@@ -816,6 +828,7 @@ fn setup_event_with_payout_token(
         initial_tiers,
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     client.create_event(&params);
@@ -941,6 +954,7 @@ fn test_reserve_expire_and_available_again() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
     client.create_event(&params);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
@@ -1079,34 +1093,31 @@ fn test_set_privacy_unauthorized() {
 }
 
 #[test]
-fn test_mask_address_standard_returns_some() {
-    use crate::events::mask_address;
-    use crate::types::PrivacyLevel;
+fn test_mask_address_standard_returns_full() {
+    use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 
     let env = setup_env();
     let addr = Address::generate(&env);
-    let result = mask_address(&env, &addr, &PrivacyLevel::Standard);
-    assert_eq!(result, Some(addr));
+    let result = mask_address(&env, &addr, PrivacyLevel::Standard);
+    assert_eq!(result, MaskedAddress::Full(addr));
 }
 
 #[test]
-fn test_mask_address_private_returns_none() {
-    use crate::events::mask_address;
-    use crate::types::PrivacyLevel;
+fn test_mask_address_private_returns_partial() {
+    use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 
     let env = setup_env();
     let addr = Address::generate(&env);
-    let result = mask_address(&env, &addr, &PrivacyLevel::Private);
-    assert!(result.is_none());
+    let result = mask_address(&env, &addr, PrivacyLevel::Private);
+    assert!(matches!(result, MaskedAddress::Partial(_)));
 }
 
 #[test]
-fn test_mask_address_anonymous_returns_none() {
-    use crate::events::mask_address;
-    use crate::types::PrivacyLevel;
+fn test_mask_address_anonymous_returns_hashed() {
+    use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 
     let env = setup_env();
     let addr = Address::generate(&env);
-    let result = mask_address(&env, &addr, &PrivacyLevel::Anonymous);
-    assert!(result.is_none());
+    let result = mask_address(&env, &addr, PrivacyLevel::Anonymous);
+    assert!(matches!(result, MaskedAddress::Hashed(_)));
 }

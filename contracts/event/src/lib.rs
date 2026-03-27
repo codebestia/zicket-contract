@@ -115,6 +115,7 @@ impl EventContract {
             tiers,
             status: EventStatus::Upcoming,
             created_at: env.ledger().timestamp(),
+            privacy_level: params.privacy_level.clone(),
         };
 
         save_event(&env, &params.event_id, &event);
@@ -586,10 +587,12 @@ impl EventContract {
 
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            let token = payments_client.get_accepted_token();
             payments_client.pay_for_ticket(
                 &attendee,
                 &event_id,
                 &tier.price,
+                &token,
                 &PaymentPrivacy::Standard,
             );
         }

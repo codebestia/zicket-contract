@@ -1,4 +1,4 @@
-use crate::types::{CreateEventParams, EventStatus, TicketTierParams};
+use crate::types::{CreateEventParams, EventStatus, PrivacyLevel, TicketTierParams};
 use crate::{EventContract, EventContractClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token, Address, Env, String, Symbol};
@@ -37,6 +37,7 @@ fn create_active_event(
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     client.create_event(&params);
