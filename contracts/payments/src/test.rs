@@ -941,6 +941,7 @@ fn test_pay_for_ticket_with_email_hash() {
     let payment = client.get_payment(&payment_id);
     assert_eq!(payment.amount, amount);
 }
+
 // ============================================================
 // Issue #43: Escrow Timeout / Auto-Release Tests
 // ============================================================
