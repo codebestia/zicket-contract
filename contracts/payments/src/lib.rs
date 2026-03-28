@@ -1,15 +1,31 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, token, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Symbol};
 
 mod errors;
 mod events;
 mod storage;
 mod types;
 
+#[cfg(test)]
+mod migration_test;
+
 pub use errors::*;
 pub use events::*;
 pub use storage::*;
 pub use types::*;
+
+#[derive(Clone)]
+struct PaymentParams {
+    nonce: u64,
+    payer: Address,
+    event_id: Symbol,
+    amount: i128,
+    token_address: Address,
+    is_anonymous: bool,
+    is_verified: bool,
+    privacy_level: PaymentPrivacy,
+    email_hash: Option<BytesN<32>>,
+}
 
 #[contract]
 pub struct PaymentsContract;
@@ -34,71 +50,75 @@ fn validate_payment_privacy(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_payment(
-    env: Env,
-    nonce: u64,
-    payer: Address,
-    event_id: Symbol,
-    amount: i128,
-    is_anonymous: bool,
-    is_verified: bool,
-    privacy_level: PaymentPrivacy,
-) -> Result<u64, PaymentError> {
-    payer.require_auth();
+fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> {
+    params.payer.require_auth();
 
-    if storage::has_nonce(&env, &payer, nonce) {
+    if storage::has_nonce(&env, &params.payer, params.nonce) {
         return Err(PaymentError::DuplicateRequest);
     }
 
-    if amount <= 0 {
+    if params.amount <= 0 {
         return Err(PaymentError::InvalidAmount);
     }
 
-    validate_payment_privacy(&env, &event_id, is_anonymous, is_verified)?;
+    validate_payment_privacy(
+        &env,
+        &params.event_id,
+        params.is_anonymous,
+        params.is_verified,
+    )?;
 
-    if let Some(status) = storage::get_event_status(&env, &event_id) {
+    if let Some(status) = storage::get_event_status(&env, &params.event_id) {
         if matches!(status, EventStatus::Completed | EventStatus::Cancelled) {
             return Err(PaymentError::EventNotActive);
         }
     }
 
-    let token_address = storage::get_accepted_token(&env)?;
     let contract_address = env.current_contract_address();
 
-    let token_client = token::Client::new(&env, &token_address);
-    token_client.transfer(&payer, &contract_address, &amount);
+    let token_client = token::Client::new(&env, &params.token_address);
+    token_client.transfer(&params.payer, &contract_address, &params.amount);
 
     let payment_id = storage::get_next_payment_id(&env);
     let paid_at = env.ledger().timestamp();
 
     let payment = PaymentRecord {
         payment_id,
-        event_id: event_id.clone(),
-        payer: payer.clone(),
-        amount,
-        token: token_address.clone(),
+        event_id: params.event_id.clone(),
+        payer: params.payer.clone(),
+        amount: params.amount,
+        token: params.token_address.clone(),
         status: PaymentStatus::Held,
         paid_at,
-        privacy_level: privacy_level.clone(),
+        privacy_level: params.privacy_level.clone(),
     };
 
     storage::save_payment(&env, &payment);
-    storage::add_event_payment(&env, &event_id, payment_id);
-    storage::set_nonce(&env, &payer, nonce);
-    storage::add_event_revenue(&env, &event_id, amount);
+    storage::add_event_payment(&env, &params.event_id, payment_id);
+    storage::add_payer_payment(&env, &params.payer, payment_id);
+    storage::set_nonce(&env, &params.payer, params.nonce);
+    storage::add_event_revenue(&env, &params.event_id, params.amount);
 
-    let privacy = storage::get_emission_privacy(&env, &event_id);
+    // Track token-specific revenue
+    storage::add_event_token_revenue(&env, &params.event_id, &params.token_address, params.amount);
+    storage::add_event_token(&env, &params.event_id, &params.token_address);
+
+    let privacy = storage::get_emission_privacy(&env, &params.event_id);
 
     events::emit_payment_received(
         &env,
         payment_id,
-        event_id,
-        payer,
-        amount,
-        token_address.clone(),
+        params.event_id.clone(),
+        params.payer.clone(),
+        params.amount,
+        params.token_address.clone(),
         paid_at,
         &privacy,
     );
+
+    if let Some(hash) = params.email_hash {
+        events::emit_payment_receipt_requested(&env, payment_id, Some(hash));
+    }
 
     let ticket_id = storage::get_next_ticket_id(&env);
     let ticket = Ticket {
@@ -186,24 +206,30 @@ impl PaymentsContract {
         Ok(())
     }
 
-    /// Pay for a ticket. Transfers tokens from payer to contract escrow.
+    /// Pay for a ticket with a specific token. Transfers tokens from payer to contract escrow.
     pub fn pay_for_ticket(
         env: Env,
         nonce: u64,
         payer: Address,
         event_id: Symbol,
         amount: i128,
+        email_hash: Option<BytesN<32>>,
+        token_address: Address,
         privacy_level: PaymentPrivacy,
     ) -> Result<u64, PaymentError> {
         create_payment(
             env,
-            nonce,
-            payer,
-            event_id,
-            amount,
-            false,
-            false,
-            privacy_level,
+            PaymentParams {
+                nonce,
+                payer,
+                event_id,
+                amount,
+                token_address,
+                is_anonymous: false,
+                is_verified: false,
+                privacy_level,
+                email_hash,
+            },
         )
     }
 
@@ -213,18 +239,23 @@ impl PaymentsContract {
         payer: Address,
         event_id: Symbol,
         amount: i128,
+        token_address: Address,
         is_anonymous: bool,
         is_verified: bool,
     ) -> Result<u64, PaymentError> {
         create_payment(
             env,
-            nonce,
-            payer,
-            event_id,
-            amount,
-            is_anonymous,
-            is_verified,
-            PaymentPrivacy::Standard,
+            PaymentParams {
+                nonce,
+                payer,
+                event_id,
+                amount,
+                token_address,
+                is_anonymous,
+                is_verified,
+                privacy_level: PaymentPrivacy::Standard,
+                email_hash: None,
+            },
         )
     }
 
@@ -317,8 +348,18 @@ impl PaymentsContract {
         payment.status = PaymentStatus::Refunded;
         storage::update_payment(&env, &payment)?;
 
+        // Update both general and token-specific revenue
         let revenue = storage::get_event_revenue(&env, &payment.event_id);
         storage::set_event_revenue(&env, &payment.event_id, revenue - payment.amount);
+
+        let token_revenue =
+            storage::get_event_token_revenue(&env, &payment.event_id, &payment.token);
+        storage::set_event_token_revenue(
+            &env,
+            &payment.event_id,
+            &payment.token,
+            token_revenue - payment.amount,
+        );
 
         events::emit_payment_refunded(
             &env,
@@ -397,6 +438,28 @@ impl PaymentsContract {
         storage::get_event_payments(&env, &event_id)
     }
 
+    pub fn get_payments_by_event(env: Env, event_id: Symbol) -> soroban_sdk::Vec<PaymentRecord> {
+        let payment_ids = storage::get_event_payments(&env, &event_id);
+        let mut payments = soroban_sdk::Vec::new(&env);
+        for id in payment_ids {
+            if let Ok(payment) = storage::get_payment(&env, id) {
+                payments.push_back(payment);
+            }
+        }
+        payments
+    }
+
+    pub fn get_payments_by_user(env: Env, user: Address) -> soroban_sdk::Vec<PaymentRecord> {
+        let payment_ids = storage::get_payer_payments(&env, &user);
+        let mut payments = soroban_sdk::Vec::new(&env);
+        for id in payment_ids {
+            if let Ok(payment) = storage::get_payment(&env, id) {
+                payments.push_back(payment);
+            }
+        }
+        payments
+    }
+
     /// Register escrow metadata for an event. Admin only.
     /// Must be called before release_if_expired can be used.
     pub fn set_event_end_time(
@@ -443,11 +506,12 @@ impl PaymentsContract {
         let mut to_release: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::Vec::new(&env);
 
         for i in 0..payment_ids.len() {
-            let pid = payment_ids.get(i).unwrap();
-            let payment = storage::get_payment(&env, pid)?;
-            if payment.status == PaymentStatus::Held {
-                total += payment.amount;
-                to_release.push_back(payment);
+            if let Some(pid) = payment_ids.get(i) {
+                let payment = storage::get_payment(&env, pid)?;
+                if payment.status == PaymentStatus::Held {
+                    total += payment.amount;
+                    to_release.push_back(payment);
+                }
             }
         }
 
@@ -455,9 +519,10 @@ impl PaymentsContract {
             token_client.transfer(&env.current_contract_address(), &meta.organizer, &total);
 
             for i in 0..to_release.len() {
-                let mut payment = to_release.get(i).unwrap();
-                payment.status = PaymentStatus::Released;
-                storage::update_payment(&env, &payment)?;
+                if let Some(mut payment) = to_release.get(i) {
+                    payment.status = PaymentStatus::Released;
+                    storage::update_payment(&env, &payment)?;
+                }
             }
 
             storage::set_event_revenue(&env, &event_id, 0);
@@ -484,6 +549,16 @@ impl PaymentsContract {
         let token_address = storage::get_accepted_token(&env)?;
         let token_client = token::Client::new(&env, &token_address);
         token_client.transfer(&env.current_contract_address(), &to, &revenue);
+        // Release payments
+        let payment_ids = storage::get_event_payments(&env, &event_id);
+        for i in 0..payment_ids.len() {
+            let pid = payment_ids.get(i).ok_or(PaymentError::PaymentNotFound)?;
+            let mut payment = storage::get_payment(&env, pid)?;
+            if payment.status == PaymentStatus::Held && payment.token == token_address {
+                payment.status = PaymentStatus::Released;
+                storage::update_payment(&env, &payment)?;
+            }
+        }
 
         // Update revenue tracking
         storage::reset_event_revenue(&env, &event_id);
@@ -527,7 +602,184 @@ impl PaymentsContract {
     pub fn get_event_privacy(env: Env, event_id: Symbol) -> PrivacyLevel {
         storage::get_emission_privacy(&env, &event_id)
     }
+
+    /// Get the current contract version.
+    pub fn contract_version(env: Env) -> u32 {
+        storage::get_contract_version(&env)
+    }
+
+    /// Migrate the contract to a new version. Only admin can call this.
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, PaymentError> {
+        admin.require_auth();
+
+        let current_admin = storage::get_admin(&env)?;
+        if current_admin != admin {
+            return Err(PaymentError::Unauthorized);
+        }
+
+        let current_version = storage::get_contract_version(&env);
+        let new_version = current_version + 1;
+
+        // Perform any necessary migrations based on version transitions
+        match current_version {
+            0 => {
+                // First migration: initialize version tracking
+                storage::set_contract_version(&env, 1);
+            }
+            1 => {
+                // Future migrations can be added here
+                storage::set_contract_version(&env, 2);
+            }
+            2 => {
+                // v2 -> v3 migration
+                storage::set_contract_version(&env, 3);
+            }
+            _ => {
+                return Err(PaymentError::UnsupportedVersion);
+            }
+        }
+
+        Ok(new_version)
+    }
+
+    /// Get the total revenue for an event and specific token.
+    pub fn get_event_token_revenue(env: Env, event_id: Symbol, token_address: Address) -> i128 {
+        storage::get_event_token_revenue(&env, &event_id, &token_address)
+    }
+
+    /// Get all tokens used for an event.
+    pub fn get_event_tokens(env: Env, event_id: Symbol) -> soroban_sdk::Vec<Address> {
+        storage::get_event_tokens(&env, &event_id)
+    }
+
+    /// Withdraw revenue for a specific token from an event.
+    pub fn withdraw_token(
+        env: Env,
+        organizer: Address,
+        event_id: Symbol,
+        token_address: Address,
+    ) -> Result<(), PaymentError> {
+        organizer.require_auth();
+
+        match storage::get_event_status(&env, &event_id) {
+            Some(EventStatus::Completed) => {}
+            _ => return Err(PaymentError::EventNotCompleted),
+        }
+
+        let revenue = storage::get_event_token_revenue(&env, &event_id, &token_address);
+        if revenue <= 0 {
+            return Err(PaymentError::NoRevenue);
+        }
+
+        let token_client = token::Client::new(&env, &token_address);
+        let payment_ids = storage::get_event_payments(&env, &event_id);
+
+        let mut total: i128 = 0;
+        let mut payments_to_release: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::Vec::new(&env);
+
+        for i in 0..payment_ids.len() {
+            let pid = payment_ids.get(i).ok_or(PaymentError::PaymentNotFound)?;
+            let payment = storage::get_payment(&env, pid)?;
+            if payment.status == PaymentStatus::Held && payment.token == token_address {
+                total += payment.amount;
+                payments_to_release.push_back(payment);
+            }
+        }
+
+        if total <= 0 {
+            return Err(PaymentError::NoRevenue);
+        }
+
+        token_client.transfer(&env.current_contract_address(), &organizer, &total);
+
+        for i in 0..payments_to_release.len() {
+            let mut payment = payments_to_release
+                .get(i)
+                .ok_or(PaymentError::PaymentNotFound)?;
+            payment.status = PaymentStatus::Released;
+            storage::update_payment(&env, &payment)?;
+        }
+
+        storage::set_event_token_revenue(&env, &event_id, &token_address, 0);
+
+        events::emit_revenue_withdrawn(
+            &env,
+            event_id.clone(),
+            organizer,
+            total,
+            &storage::get_emission_privacy(&env, &event_id),
+        );
+
+        Ok(())
+    }
+
+    /// Withdraw all tokens for an event.
+    pub fn withdraw_all_tokens(
+        env: Env,
+        organizer: Address,
+        event_id: Symbol,
+    ) -> Result<(), PaymentError> {
+        organizer.require_auth();
+
+        match storage::get_event_status(&env, &event_id) {
+            Some(EventStatus::Completed) => {}
+            _ => return Err(PaymentError::EventNotCompleted),
+        }
+
+        let tokens = storage::get_event_tokens(&env, &event_id);
+        if tokens.is_empty() {
+            return Err(PaymentError::NoRevenue);
+        }
+
+        for i in 0..tokens.len() {
+            let token_address = tokens.get(i).ok_or(PaymentError::PaymentNotFound)?;
+            let revenue = storage::get_event_token_revenue(&env, &event_id, &token_address);
+
+            if revenue > 0 {
+                let token_client = token::Client::new(&env, &token_address);
+                let payment_ids = storage::get_event_payments(&env, &event_id);
+
+                let mut total: i128 = 0;
+                let mut payments_to_release: soroban_sdk::Vec<PaymentRecord> =
+                    soroban_sdk::Vec::new(&env);
+
+                for j in 0..payment_ids.len() {
+                    let pid = payment_ids.get(j).ok_or(PaymentError::PaymentNotFound)?;
+                    let payment = storage::get_payment(&env, pid)?;
+                    if payment.status == PaymentStatus::Held && payment.token == token_address {
+                        total += payment.amount;
+                        payments_to_release.push_back(payment);
+                    }
+                }
+
+                if total > 0 {
+                    token_client.transfer(&env.current_contract_address(), &organizer, &total);
+
+                    for k in 0..payments_to_release.len() {
+                        let mut payment = payments_to_release
+                            .get(k)
+                            .ok_or(PaymentError::PaymentNotFound)?;
+                        payment.status = PaymentStatus::Released;
+                        storage::update_payment(&env, &payment)?;
+                    }
+
+                    storage::set_event_token_revenue(&env, &event_id, &token_address, 0);
+                    events::emit_revenue_withdrawn(
+                        &env,
+                        event_id.clone(),
+                        organizer.clone(),
+                        total,
+                        &storage::get_emission_privacy(&env, &event_id),
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
+#[cfg(test)]
+mod multi_token_test;
 #[cfg(test)]
 mod test;

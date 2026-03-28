@@ -1,5 +1,7 @@
 use crate::errors::EventError;
-use crate::types::{CreateEventParams, EventStatus, TicketTierParams, UpdateEventParams};
+use crate::types::{
+    CreateEventParams, EventStatus, PrivacyLevel, TicketTierParams, UpdateEventParams,
+};
 use crate::{EventContract, EventContractClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
 use soroban_sdk::{token, Address, Env, String, Symbol};
@@ -76,6 +78,7 @@ fn test_create_event_duplicate_fails() {
         initial_tiers: initial_tiers.clone(),
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     // First creation succeeds
@@ -93,6 +96,7 @@ fn test_create_event_duplicate_fails() {
         initial_tiers,
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
     let result = client.try_create_event(&params_dup);
     assert_eq!(result.err(), Some(Ok(EventError::EventAlreadyExists)));
@@ -123,6 +127,7 @@ fn test_create_event_invalid_tickets_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -154,6 +159,7 @@ fn test_create_event_too_many_tickets_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -185,6 +191,7 @@ fn test_create_event_past_date_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -216,6 +223,7 @@ fn test_create_event_date_less_than_24h_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -247,6 +255,7 @@ fn test_create_event_negative_price_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -278,6 +287,7 @@ fn test_create_event_empty_name_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -309,6 +319,7 @@ fn test_create_event_empty_venue_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     let result = client.try_create_event(&params);
@@ -646,7 +657,7 @@ fn test_register_for_event_happy_path() {
     let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&1, &attendee, &event_id, &0, &false);
+    client.register_for_event(&1, &attendee, &event_id, &0, &false, &None);
 
     let event = client.get_event(&event_id);
     assert_eq!(event.tiers.get(0).unwrap().sold, 1);
@@ -669,7 +680,7 @@ fn test_register_for_event_not_active_fails() {
 
     let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
 
-    let result = client.try_register_for_event(&1, &attendee, &event_id, &0, &false);
+    let result = client.try_register_for_event(&1, &attendee, &event_id, &0, &false, &None);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
 }
 
@@ -706,12 +717,13 @@ fn test_register_for_event_sold_out_fails() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
     client.create_event(&params);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&1, &attendee1, &event_id, &0, &false);
-    let result = client.try_register_for_event(&2, &attendee2, &event_id, &0, &false);
+    client.register_for_event(&1, &attendee1, &event_id, &0, &false, &None);
+    let result = client.try_register_for_event(&2, &attendee2, &event_id, &0, &false, &None);
     assert_eq!(result.err(), Some(Ok(EventError::TierSoldOut)));
 }
 
@@ -730,8 +742,8 @@ fn test_register_for_event_duplicate_fails() {
     let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&1, &attendee, &event_id, &0, &false);
-    let result = client.try_register_for_event(&2, &attendee, &event_id, &0, &false);
+    client.register_for_event(&1, &attendee, &event_id, &0, &false, &None);
+    let result = client.try_register_for_event(&2, &attendee, &event_id, &0, &false, &None);
     assert_eq!(result.err(), Some(Ok(EventError::AlreadyRegistered)));
 }
 
@@ -750,7 +762,7 @@ fn test_register_for_event_cancelled_fails() {
     let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.cancel_event(&organizer, &event_id);
 
-    let result = client.try_register_for_event(&1, &attendee, &event_id, &0, &false);
+    let result = client.try_register_for_event(&1, &attendee, &event_id, &0, &false, &None);
     assert_eq!(result.err(), Some(Ok(EventError::EventNotActive)));
 }
 
@@ -771,8 +783,8 @@ fn test_get_attendees() {
     let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.register_for_event(&1, &attendee1, &event_id, &0, &false);
-    client.register_for_event(&2, &attendee2, &event_id, &0, &false);
+    client.register_for_event(&1, &attendee1, &event_id, &0, &false, &None);
+    client.register_for_event(&2, &attendee2, &event_id, &0, &false, &None);
 
     let attendees = client.get_attendees(&event_id);
     assert_eq!(attendees.len(), 2);
@@ -816,6 +828,7 @@ fn setup_event_with_payout_token(
         initial_tiers,
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     client.create_event(&params);
@@ -876,7 +889,7 @@ fn test_reserve_ticket_success() {
     let event_id = setup_event_with_payout_token(&env, &client, &organizer, &token);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
-    client.reserve_ticket(&attendee, &event_id, &0);
+    client.reserve_ticket(&attendee, &event_id, &0, &None);
 
     let event = client.get_event(&event_id);
     let tier = event.tiers.get(0).unwrap();
@@ -900,10 +913,10 @@ fn test_reserve_and_pay_success() {
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     // 1. Reserve
-    client.reserve_ticket(&attendee, &event_id, &0);
+    client.reserve_ticket(&attendee, &event_id, &0, &None);
 
     // 2. Pay
-    client.register_for_event(&1, &attendee, &event_id, &0, &false);
+    client.register_for_event(&1, &attendee, &event_id, &0, &false, &None);
 
     let event = client.get_event(&event_id);
     let tier = event.tiers.get(0).unwrap();
@@ -941,19 +954,20 @@ fn test_reserve_expire_and_available_again() {
         ],
         allow_anonymous: true,
         requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
     client.create_event(&params);
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     // 1. Reserve
-    client.reserve_ticket(&attendee, &event_id, &0);
+    client.reserve_ticket(&attendee, &event_id, &0, &None);
 
     let event = client.get_event(&event_id);
     assert_eq!(event.tiers.get(0).unwrap().reserved, 1);
 
     // 2. Try to reserve again by another user -> should fail (Sold out/Reserved out)
     let attendee_2 = Address::generate(&env);
-    let result = client.try_reserve_ticket(&attendee_2, &event_id, &0);
+    let result = client.try_reserve_ticket(&attendee_2, &event_id, &0, &None);
     assert_eq!(result.err(), Some(Ok(EventError::TierSoldOut)));
 
     // 3. Move time forward 16 minutes (beyond 15 min expiry)
@@ -968,7 +982,7 @@ fn test_reserve_expire_and_available_again() {
     assert_eq!(event_after.tiers.get(0).unwrap().reserved, 0);
 
     // 5. Now attendee_2 can reserve
-    client.reserve_ticket(&attendee_2, &event_id, &0);
+    client.reserve_ticket(&attendee_2, &event_id, &0, &None);
     assert_eq!(
         client.get_event(&event_id).tiers.get(0).unwrap().reserved,
         1
@@ -991,7 +1005,7 @@ fn test_pay_with_expired_reservation_fails() {
     client.update_event_status(&organizer, &event_id, &EventStatus::Active);
 
     // 1. Reserve
-    client.reserve_ticket(&attendee, &event_id, &0);
+    client.reserve_ticket(&attendee, &event_id, &0, &None);
 
     // 2. Move time forward
     env.ledger().with_mut(|li| {
@@ -999,7 +1013,7 @@ fn test_pay_with_expired_reservation_fails() {
     });
 
     // 3. Try to pay -> should fail
-    let result = client.try_register_for_event(&1, &attendee, &event_id, &0, &false);
+    let result = client.try_register_for_event(&1, &attendee, &event_id, &0, &false, &None);
     assert_eq!(result.err(), Some(Ok(EventError::ReservationExpired)));
 }
 
@@ -1079,34 +1093,31 @@ fn test_set_privacy_unauthorized() {
 }
 
 #[test]
-fn test_mask_address_standard_returns_some() {
-    use crate::events::mask_address;
-    use crate::types::PrivacyLevel;
+fn test_mask_address_standard_returns_full() {
+    use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 
     let env = setup_env();
     let addr = Address::generate(&env);
-    let result = mask_address(&env, &addr, &PrivacyLevel::Standard);
-    assert_eq!(result, Some(addr));
+    let result = mask_address(&env, &addr, PrivacyLevel::Standard);
+    assert_eq!(result, MaskedAddress::Full(addr));
 }
 
 #[test]
-fn test_mask_address_private_returns_none() {
-    use crate::events::mask_address;
-    use crate::types::PrivacyLevel;
+fn test_mask_address_private_returns_partial() {
+    use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 
     let env = setup_env();
     let addr = Address::generate(&env);
-    let result = mask_address(&env, &addr, &PrivacyLevel::Private);
-    assert!(result.is_none());
+    let result = mask_address(&env, &addr, PrivacyLevel::Private);
+    assert!(matches!(result, MaskedAddress::Partial(_)));
 }
 
 #[test]
-fn test_mask_address_anonymous_returns_none() {
-    use crate::events::mask_address;
-    use crate::types::PrivacyLevel;
+fn test_mask_address_anonymous_returns_hashed() {
+    use privacy_utils::{mask_address, MaskedAddress, PrivacyLevel};
 
     let env = setup_env();
     let addr = Address::generate(&env);
-    let result = mask_address(&env, &addr, &PrivacyLevel::Anonymous);
-    assert!(result.is_none());
+    let result = mask_address(&env, &addr, PrivacyLevel::Anonymous);
+    assert!(matches!(result, MaskedAddress::Hashed(_)));
 }

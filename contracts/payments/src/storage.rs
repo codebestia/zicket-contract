@@ -2,6 +2,10 @@ use crate::errors::PaymentError;
 use crate::types::{EscrowMetadata, EventStatus, PaymentRecord, PrivacyLevel, Ticket};
 use soroban_sdk::{contracttype, Address, Env, Symbol, Vec};
 
+const TTL_THRESHOLD: u32 = 60 * 60 * 24 * 30;
+const TTL_BUMP: u32 = 60 * 60 * 24 * 30 * 2;
+const CURRENT_VERSION: u32 = 1;
+
 #[contracttype]
 #[derive(Clone)]
 pub struct EventPrivacyConfig {
@@ -29,14 +33,18 @@ pub enum DataKey {
     Ticket(u64),
     EventPayments(Symbol),
     EventRevenue(Symbol),
+    EventTokenRevenue(Symbol, Address), // Revenue per token per event
+    EventTokens(Symbol),                // List of tokens used for an event
     EventStatus(Symbol),
     OwnerTickets(Address),
+    PayerPayments(Address),
     WithdrawalHistory(Symbol),
     NextPaymentId,
     NextTicketId,
     EmissionPrivacy(Symbol),
     EscrowMeta(Symbol),
     ProcessedNonce(Address, u64),
+    ContractVersion,
 }
 
 pub fn set_event_status(env: &Env, event_id: &Symbol, status: &EventStatus) {
@@ -277,6 +285,29 @@ pub fn get_event_payments(env: &Env, event_id: &Symbol) -> Vec<u64> {
         .unwrap_or_else(|| Vec::new(env))
 }
 
+/// add a payment id to the list of payments for a payer
+pub fn add_payer_payment(env: &Env, payer: &Address, payment_id: u64) {
+    let key = DataKey::PayerPayments(payer.clone());
+    let mut payments: Vec<u64> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    payments.push_back(payment_id);
+    env.storage().persistent().set(&key, &payments);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+/// Get all payment IDs for a payer.
+pub fn get_payer_payments(env: &Env, payer: &Address) -> Vec<u64> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::PayerPayments(payer.clone()))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
 /// Get the total revenue for an event.
 pub fn get_event_revenue(env: &Env, event_id: &Symbol) -> i128 {
     env.storage()
@@ -391,4 +422,105 @@ pub fn set_nonce(env: &Env, address: &Address, nonce: u64) {
     env.storage()
         .persistent()
         .extend_ttl(&key, 60 * 60 * 24 * 7, 60 * 60 * 24 * 14);
+}
+
+/// Get the current contract version from storage.
+pub fn get_contract_version(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::ContractVersion)
+        .unwrap_or(1)
+}
+
+/// Set the contract version in storage.
+pub fn set_contract_version(env: &Env, version: u32) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::ContractVersion, &version);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::ContractVersion, TTL_THRESHOLD, TTL_BUMP);
+}
+
+/// Verify that the contract version is supported. Returns error if version is not compatible.
+pub fn verify_version(env: &Env) -> Result<(), PaymentError> {
+    let version = get_contract_version(env);
+    if version > CURRENT_VERSION {
+        return Err(PaymentError::UnsupportedVersion);
+    }
+    Ok(())
+}
+
+/// Get the total revenue for an event and specific token.
+pub fn get_event_token_revenue(env: &Env, event_id: &Symbol, token_address: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EventTokenRevenue(
+            event_id.clone(),
+            token_address.clone(),
+        ))
+        .unwrap_or(0)
+}
+
+/// Add to the total revenue for an event and specific token.
+pub fn add_event_token_revenue(
+    env: &Env,
+    event_id: &Symbol,
+    token_address: &Address,
+    amount: i128,
+) {
+    let current_revenue = get_event_token_revenue(env, event_id, token_address);
+    let new_revenue = current_revenue + amount;
+    let key = DataKey::EventTokenRevenue(event_id.clone(), token_address.clone());
+    env.storage().persistent().set(&key, &new_revenue);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+/// Set the total revenue for an event and specific token.
+pub fn set_event_token_revenue(
+    env: &Env,
+    event_id: &Symbol,
+    token_address: &Address,
+    amount: i128,
+) {
+    let key = DataKey::EventTokenRevenue(event_id.clone(), token_address.clone());
+    env.storage().persistent().set(&key, &amount);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+/// Add a token to the list of tokens used for an event.
+pub fn add_event_token(env: &Env, event_id: &Symbol, token_address: &Address) {
+    let key = DataKey::EventTokens(event_id.clone());
+    let mut tokens: Vec<Address> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    // Only add if not already present
+    for i in 0..tokens.len() {
+        if let Some(existing_token) = tokens.get(i) {
+            if existing_token == *token_address {
+                return;
+            }
+        }
+    }
+
+    tokens.push_back(token_address.clone());
+    env.storage().persistent().set(&key, &tokens);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+}
+
+/// Get all tokens used for an event.
+pub fn get_event_tokens(env: &Env, event_id: &Symbol) -> Vec<Address> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::EventTokens(event_id.clone()))
+        .unwrap_or_else(|| Vec::new(env))
 }

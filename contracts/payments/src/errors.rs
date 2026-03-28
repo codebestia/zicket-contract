@@ -26,4 +26,6 @@ pub enum PaymentError {
     EscrowAlreadyReleased = 20,
     EscrowNotConfigured = 21,
     DuplicateRequest = 22,
+    MigrationFailed = 23,
+    UnsupportedVersion = 24,
 }
