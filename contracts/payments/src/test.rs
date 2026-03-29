@@ -16,9 +16,11 @@ fn test_initialize() {
     client.initialize(&admin, &token, &event_contract_id);
 
     let stored_admin = env
-        .as_contract(&contract_id, || storage::get_admin(&env)).unwrap();
+        .as_contract(&contract_id, || storage::get_admin(&env))
+        .unwrap();
     let stored_token = env
-        .as_contract(&contract_id, || storage::get_accepted_token(&env)).unwrap();
+        .as_contract(&contract_id, || storage::get_accepted_token(&env))
+        .unwrap();
 
     assert_eq!(stored_admin, admin);
     assert_eq!(stored_token, token);
@@ -40,9 +42,11 @@ fn test_double_initialization() {
     assert!(result.is_ok());
 
     let stored_admin = env
-        .as_contract(&contract_id, || storage::get_admin(&env)).unwrap();
+        .as_contract(&contract_id, || storage::get_admin(&env))
+        .unwrap();
     let stored_token = env
-        .as_contract(&contract_id, || storage::get_accepted_token(&env)).unwrap();
+        .as_contract(&contract_id, || storage::get_accepted_token(&env))
+        .unwrap();
     assert_eq!(stored_admin, admin);
     assert_eq!(stored_token, token);
 }
@@ -350,15 +354,8 @@ fn test_pay_for_ticket_rejects_anonymous_when_disabled() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let result = client.try_pay_for_ticket_with_options(
-        &1,
-        &payer,
-        &event_id,
-        &amount,
-        &token,
-        &true,
-        &false,
-    );
+    let result = client
+        .try_pay_for_ticket_with_options(&1, &payer, &event_id, &amount, &token, &true, &false);
     assert_eq!(
         result.err(),
         Some(Ok(PaymentError::AnonymousPaymentsDisabled))
@@ -383,8 +380,8 @@ fn test_pay_for_ticket_rejects_unverified_when_required() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let result =
-        client.try_pay_for_ticket_with_options(&1, &payer, &event_id, &amount, &token, &false, &false);
+    let result = client
+        .try_pay_for_ticket_with_options(&1, &payer, &event_id, &amount, &token, &false, &false);
     assert_eq!(result.err(), Some(Ok(PaymentError::VerificationRequired)));
 }
 
@@ -424,7 +421,15 @@ fn test_pay_for_ticket_unauthorized() {
     let event_id = symbol_short!("EVENT1");
     let amount = 100_000_000i128;
 
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 }
 
 #[test]
@@ -446,12 +451,33 @@ fn test_pay_for_ticket_multiple_payments() {
     token_client.transfer(&admin, &payer1, &(amount1 + amount3));
     token_client.transfer(&admin, &payer2, &amount2);
 
-    let payment_id1 =
-        client.pay_for_ticket(&1, &payer1, &event_id1, &amount1, &None, &token, &PaymentPrivacy::Standard);
-    let payment_id2 =
-        client.pay_for_ticket(&2, &payer2, &event_id2, &amount2, &None, &token, &PaymentPrivacy::Standard);
-    let payment_id3 =
-        client.pay_for_ticket(&3, &payer1, &event_id1, &amount3, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id1 = client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id1,
+        &amount1,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    let payment_id2 = client.pay_for_ticket(
+        &2,
+        &payer2,
+        &event_id2,
+        &amount2,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    let payment_id3 = client.pay_for_ticket(
+        &3,
+        &payer1,
+        &event_id1,
+        &amount3,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     assert_eq!(payment_id1, 1);
     assert_eq!(payment_id2, 2);
@@ -502,11 +528,19 @@ fn test_pay_for_ticket_query_record() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     let payment = env
-        .as_contract(&contract_id, || storage::get_payment(&env, payment_id)).unwrap();
+        .as_contract(&contract_id, || storage::get_payment(&env, payment_id))
+        .unwrap();
 
     assert_eq!(payment.payment_id, payment_id);
     assert_eq!(payment.event_id, event_id);
@@ -534,7 +568,15 @@ fn test_withdraw_revenue_success() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     assert_eq!(token_client.balance(&payer), 0);
     assert_eq!(token_client.balance(&contract_id), amount);
@@ -576,7 +618,15 @@ fn test_multiple_withdrawals_tracked() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id = client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     let _not_admin = Address::generate(&env);
     let result = client.try_refund(&_not_admin, &payment_id);
     assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
@@ -598,11 +648,27 @@ fn test_refund_after_withdrawal() {
     // First withdrawal
     token_contract.mint(&admin, &(amount * 3));
     token_client.transfer(&admin, &payer, &(amount * 3));
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     client.withdraw_revenue(&event_id, &organizer);
 
     bind_event(&client, &event_contract, &event_id, &organizer, &token);
-    let payment_id = client.pay_for_ticket(&123, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id = client.pay_for_ticket(
+        &123,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Set status to complete and withdraw
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
@@ -635,8 +701,24 @@ fn test_withdraw_happy_path() {
     token_client.transfer(&admin, &payer2, &amount2);
 
     bind_event(&client, &event_contract, &event_id, &organizer, &token);
-    let pid1 = client.pay_for_ticket(&1, &payer1, &event_id, &amount1, &None, &token, &PaymentPrivacy::Standard);
-    let pid2 = client.pay_for_ticket(&1, &payer2, &event_id, &amount2, &None, &token, &PaymentPrivacy::Standard);
+    let pid1 = client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id,
+        &amount1,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    let pid2 = client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event_id,
+        &amount2,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
     client.withdraw(&organizer, &event_id);
@@ -690,9 +772,33 @@ fn test_mixed_refund_then_withdraw() {
     token_client.transfer(&admin, &payer3, &amount3);
 
     bind_event(&client, &event_contract, &event_id, &organizer, &token);
-    let pid1 = client.pay_for_ticket(&1, &payer1, &event_id, &amount1, &None, &token, &PaymentPrivacy::Standard);
-    let pid2 = client.pay_for_ticket(&1, &payer2, &event_id, &amount2, &None, &token, &PaymentPrivacy::Standard);
-    let pid3 = client.pay_for_ticket(&1, &payer3, &event_id, &amount3, &None, &token, &PaymentPrivacy::Standard);
+    let pid1 = client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id,
+        &amount1,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    let pid2 = client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event_id,
+        &amount2,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    let pid3 = client.pay_for_ticket(
+        &1,
+        &payer3,
+        &event_id,
+        &amount3,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Refund payment 2
     client.refund(&admin, &pid2);
@@ -732,8 +838,24 @@ fn test_refund_reduces_revenue_correctly() {
     token_client.transfer(&admin, &payer1, &amount1);
     token_client.transfer(&admin, &payer2, &amount2);
 
-    let pid1 = client.pay_for_ticket(&1, &payer1, &event_id, &amount1, &None, &token, &PaymentPrivacy::Standard);
-    client.pay_for_ticket(&1, &payer2, &event_id, &amount2, &None, &token, &PaymentPrivacy::Standard);
+    let pid1 = client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id,
+        &amount1,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event_id,
+        &amount2,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     assert_eq!(client.get_event_revenue(&event_id), amount1 + amount2);
 
@@ -764,13 +886,45 @@ fn test_query_payments() {
     bind_event(&client, &event_contract, &event2, &organizer, &token);
 
     // P1 -> E1
-    client.pay_for_ticket(&1, &payer1, &event1, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event1,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     // P1 -> E2
-    client.pay_for_ticket(&2, &payer1, &event2, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &2,
+        &payer1,
+        &event2,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     // P2 -> E1
-    client.pay_for_ticket(&1, &payer2, &event1, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event1,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     // P2 -> E2
-    client.pay_for_ticket(&2, &payer2, &event2, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &2,
+        &payer2,
+        &event2,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Query by Event E1
     let e1_payments = client.get_payments_by_event(&event1);
@@ -807,7 +961,7 @@ fn test_pay_for_ticket_with_email_hash() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    
+
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
 
     let payment_id = client.pay_for_ticket(
@@ -866,7 +1020,15 @@ fn test_release_if_expired_before_deadline_fails() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     client.set_event_end_time(&admin, &event_id, &organizer, &event_end_time);
 
@@ -892,7 +1054,15 @@ fn test_release_if_expired_after_deadline_succeeds() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     client.set_event_end_time(&admin, &event_id, &organizer, &event_end_time);
 
@@ -925,7 +1095,15 @@ fn test_release_if_expired_no_double_payout() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     client.set_event_end_time(&admin, &event_id, &organizer, &event_end_time);
 
@@ -1052,8 +1230,15 @@ fn test_pay_for_ticket_anonymous_privacy() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Anonymous);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Anonymous,
+    );
 
     let payment = client.get_payment(&payment_id);
     assert_eq!(payment.privacy_level, PaymentPrivacy::Anonymous);
@@ -1076,8 +1261,15 @@ fn test_pay_for_ticket_private_privacy() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Private);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Private,
+    );
 
     let payment = client.get_payment(&payment_id);
     assert_eq!(payment.privacy_level, PaymentPrivacy::Private);
@@ -1100,8 +1292,15 @@ fn test_pay_for_ticket_standard_privacy() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     let payment = client.get_payment(&payment_id);
     assert_eq!(payment.privacy_level, PaymentPrivacy::Standard);
@@ -1124,8 +1323,15 @@ fn test_anonymous_event_does_not_expose_payer() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Anonymous);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Anonymous,
+    );
 
     // Verify the payment was recorded with Anonymous privacy on-chain
     let payment = client.get_payment(&payment_id);
@@ -1150,10 +1356,33 @@ fn test_privacy_levels_stored_correctly() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &(amount * 3));
 
-    let pid_anon =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Anonymous);
-    let pid_priv = client.pay_for_ticket(&2, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Private);
-    let pid_std = client.pay_for_ticket(&3, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let pid_anon = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Anonymous,
+    );
+    let pid_priv = client.pay_for_ticket(
+        &2,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Private,
+    );
+    let pid_std = client.pay_for_ticket(
+        &3,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     assert_eq!(
         client.get_payment(&pid_anon).privacy_level,
@@ -1184,8 +1413,15 @@ fn test_refund_unauthorized() {
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
 
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     let result = client.try_refund(&_not_admin, &payment_id);
     assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
 }
@@ -1248,7 +1484,15 @@ fn test_withdraw_unauthorized_organizer_rejected() {
     token_client.transfer(&admin, &payer, &amount);
 
     bind_event(&client, &event_contract, &event_id, &organizer, &token);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
 
     let result = client.try_withdraw(&attacker, &event_id);
@@ -1299,7 +1543,15 @@ fn test_double_withdraw_rejected_after_revenue_cleared() {
     token_client.transfer(&admin, &payer, &amount);
 
     bind_event(&client, &event_contract, &event_id, &organizer, &token);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
     client.withdraw(&organizer, &event_id);
 
@@ -1323,8 +1575,8 @@ fn test_pay_after_event_completed_fails() {
     token_client.transfer(&admin, &payer, &amount);
 
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
-    let result =
-        client.try_pay_for_ticket_with_options(&1, &payer, &event_id, &amount, &token, &true, &false);
+    let result = client
+        .try_pay_for_ticket_with_options(&1, &payer, &event_id, &amount, &token, &true, &false);
     assert_eq!(result.err(), Some(Ok(PaymentError::EventNotActive)));
 }
 
@@ -1346,7 +1598,15 @@ fn test_withdraw_before_completion_fails() {
 
     bind_event(&client, &event_contract, &event_id, &organizer, &token);
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     let result = client.try_withdraw(&organizer, &event_id);
     assert_eq!(result.err(), Some(Ok(PaymentError::EventNotCompleted)));
@@ -1367,8 +1627,15 @@ fn test_refund_on_cancelled_event_succeeds() {
     token_client.transfer(&admin, &payer, &amount);
 
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
-    let payment_id =
-        client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Cancelled);
     client.refund(&admin, &payment_id);
@@ -1392,7 +1659,15 @@ fn test_idempotent_payment() {
 
     // First attempt succeeds
     let nonce = 12345u64;
-    client.pay_for_ticket(&nonce, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Check storage manually
     let contract_id = client.address.clone();
@@ -1404,10 +1679,26 @@ fn test_idempotent_payment() {
 
     // First attempt succeeds
     let nonce = 123456u64;
-    client.pay_for_ticket(&nonce, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Second attempt with same nonce fails (should panic with DuplicateRequest)
-    client.pay_for_ticket(&nonce, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 }
 
 #[test]

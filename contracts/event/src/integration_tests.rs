@@ -272,7 +272,14 @@ fn test_registration_with_email_hook() {
     );
 
     let email_hash = BytesN::from_array(&env, &[2u8; 32]);
-    event_client.register_for_event(&1, &attendee, &event_id, &0, &false, &Some(email_hash.clone()));
+    event_client.register_for_event(
+        &1,
+        &attendee,
+        &event_id,
+        &0,
+        &false,
+        &Some(email_hash.clone()),
+    );
 
     let registered = event_client.is_registered(&event_id, &attendee);
     assert!(registered);

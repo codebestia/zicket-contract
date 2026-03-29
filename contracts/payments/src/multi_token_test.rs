@@ -64,8 +64,24 @@ fn test_multi_token_payments() {
     token2_transfer_client.transfer(&admin, &payer2, &amount2);
 
     // Pay with different tokens
-    let payment_id1 = client.pay_for_ticket(&1, &payer1, &event_id, &amount1, &None, &token1, &PaymentPrivacy::Standard);
-    let payment_id2 = client.pay_for_ticket(&1, &payer2, &event_id, &amount2, &None, &token2, &PaymentPrivacy::Standard);
+    let payment_id1 = client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id,
+        &amount1,
+        &None,
+        &token1,
+        &PaymentPrivacy::Standard,
+    );
+    let payment_id2 = client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event_id,
+        &amount2,
+        &None,
+        &token2,
+        &PaymentPrivacy::Standard,
+    );
 
     // Verify payments
     let payment1 = client.get_payment(&payment_id1);

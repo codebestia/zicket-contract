@@ -207,6 +207,7 @@ impl PaymentsContract {
     }
 
     /// Pay for a ticket with a specific token. Transfers tokens from payer to contract escrow.
+    #[allow(clippy::too_many_arguments)]
     pub fn pay_for_ticket(
         env: Env,
         nonce: u64,
@@ -233,6 +234,7 @@ impl PaymentsContract {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn pay_for_ticket_with_options(
         env: Env,
         nonce: u64,
