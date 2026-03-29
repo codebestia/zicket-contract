@@ -119,10 +119,23 @@ fn setup_contract_with_fee(
     let platform_wallet = Address::generate(env);
     let token_contract = env.register_stellar_asset_contract_v2(admin.clone());
     let token = token_contract.address();
-    client.initialize(&admin, &token, &fee_bps, &platform_wallet, &event_contract_id);
+    client.initialize(
+        &admin,
+        &token,
+        &fee_bps,
+        &platform_wallet,
+        &event_contract_id,
+    );
 
     let token_client = token::StellarAssetClient::new(env, &token);
-    (admin, token, client, contract_id, token_client, event_contract_id)
+    (
+        admin,
+        token,
+        client,
+        contract_id,
+        token_client,
+        event_contract_id,
+    )
 }
 
 fn setup_contract_with_token_and_event(
@@ -1009,7 +1022,8 @@ fn test_set_event_end_time_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, _token, client, _contract_id, _token_contract, _) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract, _) =
+        setup_contract_with_token(&env);
     let organizer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
     let event_end_time: u64 = 1704067200 + 86_400;
@@ -1145,7 +1159,8 @@ fn test_release_if_expired_not_configured() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, _token, client, _contract_id, _token_contract, _) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract, _) =
+        setup_contract_with_token(&env);
     let event_id = symbol_short!("EVENT1");
 
     let result = client.try_release_if_expired(&event_id);
@@ -1188,7 +1203,8 @@ fn test_payments_privacy_default_is_standard() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, _token, client, _contract_id, _token_contract, _) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract, _) =
+        setup_contract_with_token(&env);
     let event_id = symbol_short!("EVENT1");
 
     let level = client.get_event_privacy(&event_id);
@@ -1230,7 +1246,8 @@ fn test_payments_set_privacy_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, _token, client, _contract_id, _token_contract, _) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract, _) =
+        setup_contract_with_token(&env);
     let intruder = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
 
@@ -1755,7 +1772,13 @@ fn test_initialize_invalid_fee_bps() {
     let token = Address::generate(&env);
     let platform_wallet = Address::generate(&env);
 
-    let result = client.try_initialize(&admin, &token, &10_001, &platform_wallet, &event_contract_id);
+    let result = client.try_initialize(
+        &admin,
+        &token,
+        &10_001,
+        &platform_wallet,
+        &event_contract_id,
+    );
     assert_eq!(result.err(), Some(Ok(PaymentError::InvalidFeeBps)));
 }
 
@@ -1776,7 +1799,15 @@ fn test_withdraw_revenue_with_fee() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Withdraw revenue — fee should be deducted
     let organizer = Address::generate(&env);
@@ -1818,7 +1849,15 @@ fn test_withdraw_revenue_zero_fee() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     let organizer = Address::generate(&env);
     client.withdraw_revenue(&event_id, &organizer);
@@ -1843,7 +1882,15 @@ fn test_withdraw_platform_revenue() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Withdraw revenue — fee accumulated
     let organizer = Address::generate(&env);
@@ -1907,7 +1954,8 @@ fn test_organizer_withdraw_with_fee() {
     env.mock_all_auths();
 
     // 10% fee = 1000 bps
-    let (admin, token, client, contract_id, token_contract, event_contract) = setup_contract_with_fee(&env, 1000);
+    let (admin, token, client, contract_id, token_contract, event_contract) =
+        setup_contract_with_fee(&env, 1000);
     let payer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
     let amount = 100_000_000i128;
@@ -1919,7 +1967,15 @@ fn test_organizer_withdraw_with_fee() {
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
 
     // Mark event as completed, then organizer withdraws via `withdraw` function
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
@@ -1940,7 +1996,8 @@ fn test_platform_revenue_accumulates_across_withdrawals() {
     env.mock_all_auths();
 
     // 5% fee = 500 bps
-    let (admin, token, client, _contract_id, token_contract, _) = setup_contract_with_fee(&env, 500);
+    let (admin, token, client, _contract_id, token_contract, _) =
+        setup_contract_with_fee(&env, 500);
     let payer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
     let amount = 100_000_000i128;
@@ -1950,7 +2007,15 @@ fn test_platform_revenue_accumulates_across_withdrawals() {
     // First cycle
     token_contract.mint(&admin, &amount);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&1, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     client.withdraw_revenue(&event_id, &organizer);
 
     let fee_per_cycle = 5_000_000i128; // 100M * 500 / 10000
@@ -1959,7 +2024,15 @@ fn test_platform_revenue_accumulates_across_withdrawals() {
     // Second cycle
     token_contract.mint(&admin, &amount);
     token_client.transfer(&admin, &payer, &amount);
-    client.pay_for_ticket(&2, &payer, &event_id, &amount, &None, &token, &PaymentPrivacy::Standard);
+    client.pay_for_ticket(
+        &2,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
     client.withdraw_revenue(&event_id, &organizer);
 
     // Platform revenue should accumulate
