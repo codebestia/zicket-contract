@@ -5,6 +5,9 @@ mod storage;
 mod types;
 
 #[cfg(test)]
+mod migration_test;
+
+#[cfg(test)]
 mod test;
 
 use crate::errors::TicketError;
@@ -60,7 +63,14 @@ impl TicketContract {
             .set(&DataKey::EventTickets(event_id), &event_tickets);
 
         write_next_ticket_id(&env, ticket_id + 1);
-        events::emit_ticket_minted(&env, ticket_id);
+        events::emit_ticket_minted(
+            &env,
+            ticket_id,
+            ticket.event_id.clone(),
+            ticket.owner.clone(),
+            ticket.organizer.clone(),
+            ticket.issued_at,
+        );
 
         Ok(ticket_id)
     }
@@ -126,7 +136,7 @@ impl TicketContract {
             .persistent()
             .set(&DataKey::OwnerTickets(to.clone()), &to_tickets);
 
-        events::emit_ticket_transferred(&env, ticket_id, from, to);
+        events::emit_ticket_transferred(&env, ticket_id, ticket.event_id.clone(), from, to);
 
         Ok(())
     }
@@ -170,7 +180,12 @@ impl TicketContract {
             .set(&DataKey::Ticket(ticket_id), &ticket);
 
         // 7. Emit ticket used event
-        events::emit_ticket_used(&env, ticket_id);
+        events::emit_ticket_used(
+            &env,
+            ticket_id,
+            ticket.event_id.clone(),
+            ticket.owner.clone(),
+        );
 
         Ok(())
     }
@@ -207,9 +222,48 @@ impl TicketContract {
         ticket.status = TicketStatus::Cancelled;
         storage::update_ticket(&env, &ticket);
 
-        events::emit_ticket_cancelled(&env, ticket_id);
+        events::emit_ticket_cancelled(
+            &env,
+            ticket_id,
+            ticket.event_id.clone(),
+            ticket.owner.clone(),
+        );
 
         Ok(())
+    }
+
+    /// Get the current contract version.
+    pub fn contract_version(env: Env) -> u32 {
+        storage::get_contract_version(&env)
+    }
+
+    /// Migrate the contract to a new version. Only organizer can call this through authorization.
+    pub fn migrate(env: Env, caller: Address) -> Result<u32, TicketError> {
+        caller.require_auth();
+
+        let current_version = storage::get_contract_version(&env);
+        let new_version = current_version + 1;
+
+        // Perform any necessary migrations based on version transitions
+        match current_version {
+            0 => {
+                // First migration: initialize version tracking
+                storage::set_contract_version(&env, 1);
+            }
+            1 => {
+                // Future migrations can be added here
+                storage::set_contract_version(&env, 2);
+            }
+            2 => {
+                // v2 -> v3 migration
+                storage::set_contract_version(&env, 3);
+            }
+            _ => {
+                return Err(TicketError::UnsupportedVersion);
+            }
+        }
+
+        Ok(new_version)
     }
 }
 

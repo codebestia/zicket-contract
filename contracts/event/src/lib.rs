@@ -1,12 +1,15 @@
 #![no_std]
-use payments_contract::PaymentsContractClient;
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol};
+use payments_contract::{PaymentPrivacy, PaymentsContractClient};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Symbol};
 use ticket_contract::TicketContractClient;
 
 mod errors;
 mod events;
 mod storage;
 mod types;
+
+#[cfg(test)]
+mod migration_test;
 
 pub use errors::*;
 pub use storage::*;
@@ -57,7 +60,7 @@ impl EventContract {
             return Err(EventError::InvalidEventDate);
         }
 
-        // Validate there is at least one tier
+        // Validate there is at least 1 tier
         if params.initial_tiers.is_empty() {
             return Err(EventError::InvalidInput);
         }
@@ -89,20 +92,47 @@ impl EventContract {
             return Err(EventError::EventAlreadyExists);
         }
 
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            let accepted_token = payments_client.get_accepted_token();
+
+            if params.payout_token != accepted_token {
+                return Err(EventError::InvalidPayoutToken);
+            }
+        }
+
         let event = Event {
             event_id: params.event_id.clone(),
             organizer: params.organizer.clone(),
+            payout_token: params.payout_token.clone(),
             name: params.name.clone(),
             description: params.description.clone(),
             venue: params.venue.clone(),
             event_date: params.event_date,
+            allow_anonymous: params.allow_anonymous,
+            requires_verification: params.requires_verification,
             tiers,
             status: EventStatus::Upcoming,
             created_at: env.ledger().timestamp(),
+            privacy_level: params.privacy_level.clone(),
         };
 
         save_event(&env, &params.event_id, &event);
-        emit_event_created(&env, &params);
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            payments_client.sync_event_config(
+                &env.current_contract_address(),
+                &params.event_id,
+                &params.organizer,
+                &params.payout_token,
+                &params.allow_anonymous,
+                &params.requires_verification,
+            );
+        }
+        let privacy = storage::get_event_privacy(&env, &params.event_id);
+        emit_event_created(&env, &params, &privacy);
 
         Ok(event)
     }
@@ -157,11 +187,39 @@ impl EventContract {
             }
             event.event_date = date;
         }
+        if let Some(allow_anonymous) = params.allow_anonymous {
+            event.allow_anonymous = allow_anonymous;
+        }
+        if let Some(requires_verification) = params.requires_verification {
+            event.requires_verification = requires_verification;
+        }
 
         save_event(&env, &params.event_id, &event);
+        if has_linked_contracts(&env) {
+            let payments_contract = get_payments_contract(&env)?;
+            let payments_client = PaymentsContractClient::new(&env, &payments_contract);
+            payments_client.sync_event_config(
+                &env.current_contract_address(),
+                &params.event_id,
+                &event.organizer,
+                &event.payout_token,
+                &event.allow_anonymous,
+                &event.requires_verification,
+            );
+        }
         emit_event_updated(&env, &event);
 
         Ok(event)
+    }
+
+    pub fn get_allow_anonymous(env: Env, event_id: Symbol) -> bool {
+        storage::get_event(&env, &event_id).unwrap().allow_anonymous
+    }
+
+    pub fn get_requires_verification(env: Env, event_id: Symbol) -> bool {
+        storage::get_event(&env, &event_id)
+            .unwrap()
+            .requires_verification
     }
 
     /// Add a new ticket tier to an Upcoming event. Only the organizer can do this.
@@ -236,7 +294,7 @@ impl EventContract {
 
         let mut found = false;
         for i in 0..event.tiers.len() {
-            let mut tier = event.tiers.get(i).unwrap();
+            let mut tier = event.tiers.get(i).ok_or(EventError::TierNotFound)?;
             if tier.tier_id == tier_id {
                 if let Some(n) = name.clone() {
                     if n.is_empty() {
@@ -332,7 +390,7 @@ impl EventContract {
 
         update_event(&env, &event_id, &event)?;
         emit_status_changed(&env, &event_id, &old_status, &EventStatus::Cancelled);
-        emit_event_cancelled(&env, &event_id);
+        emit_event_cancelled(&env, &event_id, &organizer);
 
         // Process refunds if contracts are linked
         if has_linked_contracts(&env) {
@@ -360,6 +418,7 @@ impl EventContract {
         attendee: Address,
         event_id: Symbol,
         tier_id: u32,
+        _email_hash: Option<BytesN<32>>,
     ) -> Result<(), EventError> {
         attendee.require_auth();
 
@@ -384,7 +443,7 @@ impl EventContract {
                 // First decrement the old reserved count.
                 let mut found = false;
                 for i in 0..event.tiers.len() {
-                    let mut tier = event.tiers.get(i).unwrap();
+                    let mut tier = event.tiers.get(i).ok_or(EventError::TierNotFound)?;
                     if tier.tier_id == reservation.tier_id {
                         if tier.reserved > 0 {
                             tier.reserved -= 1;
@@ -402,7 +461,7 @@ impl EventContract {
 
         let mut tier_index = None;
         for i in 0..event.tiers.len() {
-            let tier = event.tiers.get(i).unwrap();
+            let tier = event.tiers.get(i).ok_or(EventError::TierNotFound)?;
             if tier.tier_id == tier_id {
                 tier_index = Some(i);
                 break;
@@ -410,7 +469,7 @@ impl EventContract {
         }
 
         let index = tier_index.ok_or(EventError::TierNotFound)?;
-        let mut tier = event.tiers.get(index).unwrap();
+        let mut tier = event.tiers.get(index).ok_or(EventError::TierNotFound)?;
 
         if tier.sold + tier.reserved >= tier.capacity {
             return Err(EventError::TierSoldOut);
@@ -447,7 +506,7 @@ impl EventContract {
         let mut event = storage::get_event(&env, &event_id)?;
         let mut found = false;
         for i in 0..event.tiers.len() {
-            let mut tier = event.tiers.get(i).unwrap();
+            let mut tier = event.tiers.get(i).ok_or(EventError::TierNotFound)?;
             if tier.tier_id == reservation.tier_id {
                 if tier.reserved > 0 {
                     tier.reserved -= 1;
@@ -470,9 +529,12 @@ impl EventContract {
 
     pub fn register_for_event(
         env: Env,
+        nonce: u64,
         attendee: Address,
         event_id: Symbol,
         tier_id: u32,
+        _is_verified: bool,
+        _email_hash: Option<BytesN<32>>,
     ) -> Result<(), EventError> {
         attendee.require_auth();
 
@@ -499,7 +561,7 @@ impl EventContract {
             }
 
             for i in 0..event.tiers.len() {
-                let tier = event.tiers.get(i).unwrap();
+                let tier = event.tiers.get(i).ok_or(EventError::TierNotFound)?;
                 if tier.tier_id == tier_id {
                     tier_index = Some(i);
                     break;
@@ -508,7 +570,7 @@ impl EventContract {
         } else {
             // Instant purchase without reservation (if capacity allows)
             for i in 0..event.tiers.len() {
-                let tier = event.tiers.get(i).unwrap();
+                let tier = event.tiers.get(i).ok_or(EventError::TierNotFound)?;
                 if tier.tier_id == tier_id {
                     tier_index = Some(i);
                     break;
@@ -517,7 +579,7 @@ impl EventContract {
         }
 
         let index = tier_index.ok_or(EventError::TierNotFound)?;
-        let mut tier = event.tiers.get(index).unwrap();
+        let mut tier = event.tiers.get(index).ok_or(EventError::TierNotFound)?;
 
         if !has_res && tier.sold + tier.reserved >= tier.capacity {
             return Err(EventError::TierSoldOut);
@@ -528,7 +590,17 @@ impl EventContract {
 
         if tier.price > 0 {
             let payments_client = PaymentsContractClient::new(&env, &payments_contract);
-            payments_client.pay_for_ticket(&attendee, &event_id, &tier.price);
+            let token = payments_client.get_accepted_token();
+
+            payments_client.pay_for_ticket(
+                &nonce,
+                &attendee,
+                &event_id,
+                &tier.price,
+                &_email_hash,
+                &token,
+                &PaymentPrivacy::Standard,
+            );
         }
 
         let ticket_client = TicketContractClient::new(&env, &ticket_contract);
@@ -546,7 +618,8 @@ impl EventContract {
         tier.sold += 1;
         event.tiers.set(index, tier.clone());
         update_event(&env, &event_id, &event)?;
-        emit_registration(&env, &event_id, &attendee, tier_id, tier.sold);
+        let privacy = storage::get_event_privacy(&env, &event_id);
+        emit_registration(&env, &event_id, &attendee, tier_id, tier.sold, &privacy);
 
         Ok(())
     }
@@ -606,6 +679,68 @@ impl EventContract {
         let payments_contract = storage::get_payments_contract(&env)?;
         let payments_client = PaymentsContractClient::new(&env, &payments_contract);
         Ok(payments_client.get_withdrawal_history(&event_id))
+    }
+
+    /// Set the privacy level for an event. Only the organizer can change this.
+    pub fn set_event_privacy(
+        env: Env,
+        organizer: Address,
+        event_id: Symbol,
+        level: PrivacyLevel,
+    ) -> Result<(), EventError> {
+        organizer.require_auth();
+
+        let event = storage::get_event(&env, &event_id)?;
+        if event.organizer != organizer {
+            return Err(EventError::Unauthorized);
+        }
+
+        storage::set_event_privacy(&env, &event_id, &level);
+        Ok(())
+    }
+
+    /// Get the privacy level for an event.
+    pub fn get_event_privacy(env: Env, event_id: Symbol) -> PrivacyLevel {
+        storage::get_event_privacy(&env, &event_id)
+    }
+
+    /// Get the current contract version.
+    pub fn contract_version(env: Env) -> u32 {
+        storage::get_contract_version(&env)
+    }
+
+    /// Migrate the contract to a new version. Only admin can call this.
+    pub fn migrate(env: Env, admin: Address) -> Result<u32, EventError> {
+        admin.require_auth();
+
+        let current_admin = storage::get_admin(&env)?;
+        if current_admin != admin {
+            return Err(EventError::Unauthorized);
+        }
+
+        let current_version = storage::get_contract_version(&env);
+        let new_version = current_version + 1;
+
+        // Perform any necessary migrations based on version transitions
+        match current_version {
+            0 => {
+                // First migration: initialize version tracking
+                storage::set_contract_version(&env, 1);
+            }
+            1 => {
+                // Future migrations can be added here
+                storage::set_contract_version(&env, 2);
+            }
+            2 => {
+                // v2 -> v3 migration
+                storage::set_contract_version(&env, 3);
+            }
+            _ => {
+                return Err(EventError::UnsupportedVersion);
+            }
+        }
+
+        Ok(new_version)
     }
 }
 

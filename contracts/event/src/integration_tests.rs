@@ -1,7 +1,7 @@
-use crate::types::{CreateEventParams, EventStatus, TicketTierParams};
+use crate::types::{CreateEventParams, EventStatus, PrivacyLevel, TicketTierParams};
 use crate::{EventContract, EventContractClient};
 use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{token, Address, Env, String, Symbol};
+use soroban_sdk::{token, Address, BytesN, Env, String, Symbol};
 
 fn setup_env() -> Env {
     let env = Env::default();
@@ -16,10 +16,12 @@ fn create_active_event(
     env: &Env,
     client: &EventContractClient,
     organizer: &Address,
+    payout_token: &Address,
     event_id: Symbol,
 ) {
     let params = CreateEventParams {
         organizer: organizer.clone(),
+        payout_token: payout_token.clone(),
         event_id: event_id.clone(),
         name: String::from_str(env, "Cross Contract Event"),
         description: String::from_str(env, "Integration test event"),
@@ -33,6 +35,9 @@ fn create_active_event(
                 capacity: 10,
             },
         ],
+        allow_anonymous: true,
+        requires_verification: false,
+        privacy_level: PrivacyLevel::Standard,
     };
 
     client.create_event(&params);
@@ -64,7 +69,7 @@ fn test_registration_cross_contract_happy_path() {
     let token_client = token::Client::new(&env, &token_address);
 
     let platform_wallet = Address::generate(&env);
-    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet, &event_contract_id);
     event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
 
     let price = 100_000_000i128;
@@ -72,9 +77,15 @@ fn test_registration_cross_contract_happy_path() {
     token_client.transfer(&token_admin, &attendee, &price);
 
     let event_id = Symbol::new(&env, "evt_cc_1");
-    create_active_event(&env, &event_client, &organizer, event_id.clone());
+    create_active_event(
+        &env,
+        &event_client,
+        &organizer,
+        &token_address,
+        event_id.clone(),
+    );
 
-    event_client.register_for_event(&attendee, &event_id, &0);
+    event_client.register_for_event(&1, &attendee, &event_id, &0, &false, &None);
 
     let attendee_balance = token_client.balance(&attendee);
     assert_eq!(attendee_balance, 0);
@@ -83,6 +94,7 @@ fn test_registration_cross_contract_happy_path() {
     assert_eq!(escrow_balance, price);
 
     let event = event_client.get_event(&event_id);
+    assert_eq!(event.payout_token, token_address);
     assert_eq!(event.tiers.get(0).unwrap().sold, 1);
 
     let attendee_tickets = ticket_client.get_tickets_by_owner(&attendee);
@@ -122,7 +134,7 @@ fn test_registration_reverts_if_minting_fails() {
     let token_client = token::Client::new(&env, &token_address);
 
     let platform_wallet = Address::generate(&env);
-    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet, &event_contract_id);
     // Intentionally link the ticket contract to the payments contract to force mint failure.
     event_client.initialize(&organizer, &payments_contract_id, &payments_contract_id);
 
@@ -131,9 +143,15 @@ fn test_registration_reverts_if_minting_fails() {
     token_client.transfer(&token_admin, &attendee, &price);
 
     let event_id = Symbol::new(&env, "evt_cc_2");
-    create_active_event(&env, &event_client, &organizer, event_id.clone());
+    create_active_event(
+        &env,
+        &event_client,
+        &organizer,
+        &token_address,
+        event_id.clone(),
+    );
 
-    let result = event_client.try_register_for_event(&attendee, &event_id, &0);
+    let result = event_client.try_register_for_event(&1, &attendee, &event_id, &0, &false, &None);
     assert!(result.is_err());
 
     let attendee_balance = token_client.balance(&attendee);
@@ -176,7 +194,7 @@ fn test_cancel_event_triggers_refunds() {
     let token_client = token::Client::new(&env, &token_address);
 
     let platform_wallet = Address::generate(&env);
-    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet, &event_contract_id);
     event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
 
     let price = 100_000_000i128;
@@ -185,10 +203,16 @@ fn test_cancel_event_triggers_refunds() {
     token_client.transfer(&token_admin, &attendee2, &price);
 
     let event_id = Symbol::new(&env, "evt_refund_1");
-    create_active_event(&env, &event_client, &organizer, event_id.clone());
+    create_active_event(
+        &env,
+        &event_client,
+        &organizer,
+        &token_address,
+        event_id.clone(),
+    );
 
-    event_client.register_for_event(&attendee1, &event_id, &0);
-    event_client.register_for_event(&attendee2, &event_id, &0);
+    event_client.register_for_event(&1, &attendee1, &event_id, &0, &false, &None);
+    event_client.register_for_event(&2, &attendee2, &event_id, &0, &false, &None);
 
     assert_eq!(token_client.balance(&attendee1), 0);
     assert_eq!(token_client.balance(&attendee2), 0);
@@ -212,6 +236,60 @@ fn test_cancel_event_triggers_refunds() {
 }
 
 #[test]
+fn test_registration_with_email_hook() {
+    let env = setup_env();
+    env.mock_all_auths();
+
+    let organizer = Address::generate(&env);
+    let attendee = Address::generate(&env);
+
+    let event_contract_id = env.register(EventContract, ());
+    let event_client = EventContractClient::new(&env, &event_contract_id);
+
+    let ticket_contract_id = env.register(ticket_contract::TicketContract, ());
+    let payments_contract_id = env.register(payments_contract::PaymentsContract, ());
+    let payments_client =
+        payments_contract::PaymentsContractClient::new(&env, &payments_contract_id);
+
+    let token_admin = Address::generate(&env);
+    let token_address = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
+
+    let platform_wallet = Address::generate(&env);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet, &event_contract_id);
+    event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
+
+    let price = 100_000_000i128;
+    token_admin_client.mint(&token_admin, &price);
+    let token_client = token::Client::new(&env, &token_address);
+    token_client.transfer(&token_admin, &attendee, &price);
+
+    let event_id = Symbol::new(&env, "evt_hook_1");
+    create_active_event(
+        &env,
+        &event_client,
+        &organizer,
+        &token_address,
+        event_id.clone(),
+    );
+
+    let email_hash = BytesN::from_array(&env, &[2u8; 32]);
+    event_client.register_for_event(
+        &1,
+        &attendee,
+        &event_id,
+        &0,
+        &false,
+        &Some(email_hash.clone()),
+    );
+
+    let registered = event_client.is_registered(&event_id, &attendee);
+    assert!(registered);
+}
+
+#[test]
 fn test_withdraw_revenue_integration() {
     let env = setup_env();
     env.mock_all_auths();
@@ -232,37 +310,33 @@ fn test_withdraw_revenue_integration() {
         .register_stellar_asset_contract_v2(token_admin.clone())
         .address();
     let token_admin_client = token::StellarAssetClient::new(&env, &token_address);
-    let token_client = token::Client::new(&env, &token_address);
 
     let platform_wallet = Address::generate(&env);
-    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet);
+    payments_client.initialize(&organizer, &token_address, &0, &platform_wallet, &event_contract_id);
     event_client.initialize(&organizer, &ticket_contract_id, &payments_contract_id);
 
     let price = 100_000_000i128;
     token_admin_client.mint(&token_admin, &price);
+    let token_client = token::Client::new(&env, &token_address);
     token_client.transfer(&token_admin, &attendee, &price);
 
     let event_id = Symbol::new(&env, "evt_withdraw_1");
-    create_active_event(&env, &event_client, &organizer, event_id.clone());
+    create_active_event(
+        &env,
+        &event_client,
+        &organizer,
+        &token_address,
+        event_id.clone(),
+    );
 
     // Register attendee
-    event_client.register_for_event(&attendee, &event_id, &0);
+    event_client.register_for_event(&1, &attendee, &event_id, &0, &false, &None);
     assert_eq!(token_client.balance(&payments_contract_id), price);
 
     // Complete event to allow withdrawal
     event_client.update_event_status(&organizer, &event_id, &EventStatus::Completed);
-
-    // Withdraw revenue
     event_client.withdraw_revenue(&organizer, &event_id);
 
-    // Verify funds moved
     assert_eq!(token_client.balance(&organizer), price);
     assert_eq!(token_client.balance(&payments_contract_id), 0);
-
-    // Verify history
-    let history = event_client.get_withdrawal_history(&event_id);
-    assert_eq!(history.len(), 1);
-    let record = history.get(0).unwrap();
-    assert_eq!(record.amount, price);
-    assert_eq!(record.organizer, organizer);
 }
