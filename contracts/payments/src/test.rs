@@ -987,7 +987,7 @@ fn test_set_event_end_time_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let organizer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
     let event_end_time: u64 = 1704067200 + 86_400;
@@ -1123,7 +1123,7 @@ fn test_release_if_expired_not_configured() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let event_id = symbol_short!("EVENT1");
 
     let result = client.try_release_if_expired(&event_id);
@@ -1138,7 +1138,7 @@ fn test_release_if_expired_no_held_funds_still_marks_released() {
         li.timestamp = 1704067200;
     });
 
-    let (admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let organizer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
     let event_end_time: u64 = env.ledger().timestamp() + 86_400;
@@ -1166,7 +1166,7 @@ fn test_payments_privacy_default_is_standard() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let event_id = symbol_short!("EVENT1");
 
     let level = client.get_event_privacy(&event_id);
@@ -1180,7 +1180,7 @@ fn test_payments_set_privacy_level_private() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let event_id = symbol_short!("EVENT1");
 
     client.set_event_privacy(&admin, &event_id, &PrivacyLevel::Private);
@@ -1194,7 +1194,7 @@ fn test_payments_set_privacy_level_anonymous() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let event_id = symbol_short!("EVENT1");
 
     client.set_event_privacy(&admin, &event_id, &PrivacyLevel::Anonymous);
@@ -1208,7 +1208,7 @@ fn test_payments_set_privacy_unauthorized() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (_admin, token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
+    let (_admin, _token, client, _contract_id, _token_contract) = setup_contract_with_token(&env);
     let intruder = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
 
@@ -1461,7 +1461,7 @@ fn test_refund_nonexistent_payment() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (admin, token, client, _, _) = setup_contract_with_token(&env);
+    let (admin, _token, client, _, _) = setup_contract_with_token(&env);
     let result = client.try_refund(&admin, &999);
     assert_eq!(result.err(), Some(Ok(PaymentError::PaymentNotFound)));
 }
@@ -1536,7 +1536,6 @@ fn test_double_withdraw_rejected_after_revenue_cleared() {
     let organizer = Address::generate(&env);
     let event_id = symbol_short!("EVENT1");
     let amount = 100_000_000i128;
-    let email_hash = BytesN::from_array(&env, &[3u8; 32]);
 
     token_contract.mint(&admin, &amount);
     let token_client = token::Client::new(&env, &token);
