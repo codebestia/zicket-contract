@@ -116,6 +116,7 @@ impl EventContract {
             status: EventStatus::Upcoming,
             created_at: env.ledger().timestamp(),
             privacy_level: params.privacy_level.clone(),
+            max_tickets_per_user: params.max_tickets_per_user,
         };
 
         save_event(&env, &params.event_id, &event);
@@ -129,6 +130,7 @@ impl EventContract {
                 &params.payout_token,
                 &params.allow_anonymous,
                 &params.requires_verification,
+                &params.max_tickets_per_user,
             );
         }
         let privacy = storage::get_event_privacy(&env, &params.event_id);
@@ -193,6 +195,9 @@ impl EventContract {
         if let Some(requires_verification) = params.requires_verification {
             event.requires_verification = requires_verification;
         }
+        if let Some(max_tickets) = params.max_tickets_per_user {
+            event.max_tickets_per_user = max_tickets;
+        }
 
         save_event(&env, &params.event_id, &event);
         if has_linked_contracts(&env) {
@@ -205,6 +210,7 @@ impl EventContract {
                 &event.payout_token,
                 &event.allow_anonymous,
                 &event.requires_verification,
+                &event.max_tickets_per_user,
             );
         }
         emit_event_updated(&env, &event);

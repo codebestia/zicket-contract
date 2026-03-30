@@ -148,6 +148,7 @@ fn bind_event(
         payout_token,
         &true,
         &false,
+        &0,
     );
 }
 
@@ -1518,6 +1519,7 @@ fn test_sync_event_config_invalid_payout_token_rejected() {
         &invalid_token,
         &true,
         &false,
+        &0,
     );
     assert_eq!(result.err(), Some(Ok(PaymentError::InvalidPayoutToken)));
 
@@ -1718,4 +1720,82 @@ fn test_idempotent_payment_with_options() {
 
     // Second attempt with same nonce fails
     client.pay_for_ticket_with_options(&nonce, &payer, &event_id, &amount, &token, &true, &false);
+}
+#[test]
+fn test_max_tickets_per_user_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _contract_id, token_contract, event_contract_id) =
+        setup_contract_with_token_and_event(&env);
+    let payer1 = Address::generate(&env);
+    let payer2 = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let event_id = symbol_short!("LIMIT_EV");
+    let amount = 100_000_000i128;
+
+    // Mint plenty of tokens for tests
+    token_contract.mint(&admin, &(amount * 5));
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer1, &(amount * 3));
+    token_client.transfer(&admin, &payer2, &amount);
+
+    // Sync config with limit of 2 tickets per user
+    client.sync_event_config(
+        &event_contract_id,
+        &event_id,
+        &organizer,
+        &token,
+        &true,
+        &false,
+        &2,
+    );
+
+    // Payer 1: First ticket -> Success
+    client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    // Payer 1: Second ticket -> Success
+    client.pay_for_ticket(
+        &2,
+        &payer1,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    // Payer 1: Third ticket -> Failure
+    let result = client.try_pay_for_ticket(
+        &3,
+        &payer1,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    assert_eq!(result.err(), Some(Ok(PaymentError::MaxTicketsReached)));
+
+    // Payer 2: First ticket -> Success (limit is per user)
+    client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    assert_eq!(client.get_owner_tickets(&payer1).len(), 2);
+    assert_eq!(client.get_owner_tickets(&payer2).len(), 1);
 }
