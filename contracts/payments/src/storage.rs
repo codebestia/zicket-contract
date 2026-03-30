@@ -20,6 +20,7 @@ pub struct EventConfig {
     pub payout_token: Address,
     pub allow_anonymous: bool,
     pub requires_verification: bool,
+    pub max_tickets_per_user: u32,
 }
 
 #[contracttype]
@@ -45,6 +46,7 @@ pub enum DataKey {
     EscrowMeta(Symbol),
     ProcessedNonce(Address, u64),
     ContractVersion,
+    UserEventTickets(Symbol, Address),
 }
 
 pub fn set_event_status(env: &Env, event_id: &Symbol, status: &EventStatus) {
@@ -523,4 +525,18 @@ pub fn get_event_tokens(env: &Env, event_id: &Symbol) -> Vec<Address> {
         .persistent()
         .get(&DataKey::EventTokens(event_id.clone()))
         .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn get_user_event_tickets(env: &Env, event_id: &Symbol, user: &Address) -> u32 {
+    let key = DataKey::UserEventTickets(event_id.clone(), user.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn increment_user_event_tickets(env: &Env, event_id: &Symbol, user: &Address) {
+    let current = get_user_event_tickets(env, event_id, user);
+    let key = DataKey::UserEventTickets(event_id.clone(), user.clone());
+    env.storage().persistent().set(&key, &(current + 1));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
 }

@@ -38,6 +38,7 @@ fn create_active_event(
         allow_anonymous: true,
         requires_verification: false,
         privacy_level: PrivacyLevel::Standard,
+        max_tickets_per_user: 0,
     };
 
     client.create_event(&params);

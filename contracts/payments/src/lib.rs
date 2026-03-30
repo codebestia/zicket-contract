@@ -68,6 +68,16 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
         params.is_verified,
     )?;
 
+    if let Some(config) = storage::get_event_config(&env, &params.event_id) {
+        if config.max_tickets_per_user > 0 {
+            let current_tickets =
+                storage::get_user_event_tickets(&env, &params.event_id, &params.payer);
+            if current_tickets >= config.max_tickets_per_user {
+                return Err(PaymentError::MaxTicketsReached);
+            }
+        }
+    }
+
     if let Some(status) = storage::get_event_status(&env, &params.event_id) {
         if matches!(status, EventStatus::Completed | EventStatus::Cancelled) {
             return Err(PaymentError::EventNotActive);
@@ -129,6 +139,7 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     };
     storage::save_ticket(&env, &ticket);
     storage::add_owner_ticket(&env, &payment.payer, ticket_id);
+    storage::increment_user_event_tickets(&env, &params.event_id, &params.payer);
     events::emit_ticket_issued(
         &env,
         ticket_id,
@@ -282,6 +293,7 @@ impl PaymentsContract {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn sync_event_config(
         env: Env,
         event_contract: Address,
@@ -290,6 +302,7 @@ impl PaymentsContract {
         payout_token: Address,
         allow_anonymous: bool,
         requires_verification: bool,
+        max_tickets_per_user: u32,
     ) -> Result<(), PaymentError> {
         if event_contract != storage::get_event_contract(&env)? {
             return Err(PaymentError::Unauthorized);
@@ -318,6 +331,7 @@ impl PaymentsContract {
                 payout_token,
                 allow_anonymous,
                 requires_verification,
+                max_tickets_per_user,
             },
         );
 

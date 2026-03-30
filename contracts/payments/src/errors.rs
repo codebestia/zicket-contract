@@ -28,4 +28,5 @@ pub enum PaymentError {
     DuplicateRequest = 22,
     MigrationFailed = 23,
     UnsupportedVersion = 24,
+    MaxTicketsReached = 25,
 }
