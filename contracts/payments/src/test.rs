@@ -2122,7 +2122,6 @@ fn test_platform_revenue_accumulates_across_withdrawals() {
     assert_eq!(client.get_platform_revenue(&event_id), fee_per_cycle * 2);
 }
 
-
 #[test]
 fn test_replay_attack_rejected_detailed() {
     let env = Env::default();
