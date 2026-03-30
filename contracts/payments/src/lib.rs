@@ -101,6 +101,7 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
         status: PaymentStatus::Held,
         paid_at,
         privacy_level: params.privacy_level.clone(),
+        refunded_amount: 0,
     };
 
     storage::save_payment(&env, &payment)?;
@@ -372,7 +373,12 @@ impl PaymentsContract {
         Ok(())
     }
 
-    pub fn refund(env: Env, admin: Address, payment_id: u64) -> Result<(), PaymentError> {
+    pub fn refund(
+        env: Env,
+        admin: Address,
+        payment_id: u64,
+        amount: Option<i128>,
+    ) -> Result<(), PaymentError> {
         let stored_admin = storage::get_admin(&env)?;
         if admin != stored_admin {
             return Err(PaymentError::Unauthorized);
@@ -388,15 +394,26 @@ impl PaymentsContract {
             return Err(PaymentError::PaymentAlreadyProcessed);
         }
 
-        let token_client = token::Client::new(&env, &payment.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &payment.payer,
-            &payment.amount,
-        );
+        let remaining = payment.amount - payment.refunded_amount;
+        let refund_amt = amount.unwrap_or(remaining);
 
-        payment.status = PaymentStatus::Refunded;
+        if refund_amt <= 0 || refund_amt > remaining {
+            return Err(PaymentError::InvalidAmount);
+        }
+
+        let token_client = token::Client::new(&env, &payment.token);
+        token_client.transfer(&env.current_contract_address(), &payment.payer, &refund_amt);
+
+        payment.refunded_amount += refund_amt;
+        if payment.refunded_amount == payment.amount {
+            payment.status = PaymentStatus::Refunded;
+        }
+
         storage::update_payment(&env, &payment)?;
+
+        // Update both general and token-specific revenue
+        let revenue = storage::get_event_revenue(&env, &payment.event_id);
+        storage::set_event_revenue(&env, &payment.event_id, revenue - refund_amt);
 
         let token_revenue =
             storage::get_event_token_revenue(&env, &payment.event_id, &payment.token);
@@ -404,7 +421,7 @@ impl PaymentsContract {
             &env,
             &payment.event_id,
             &payment.token,
-            token_revenue - payment.amount,
+            token_revenue - refund_amt,
         );
 
         events::emit_payment_refunded(
@@ -412,7 +429,7 @@ impl PaymentsContract {
             payment_id,
             payment.event_id.clone(),
             payment.payer,
-            payment.amount,
+            refund_amt,
             &storage::get_emission_privacy(&env, &payment.event_id),
         );
 
@@ -440,6 +457,7 @@ impl PaymentsContract {
 
         let (total, payments_to_release) =
             collect_held_payments_for_token(&env, &event_id, &payout_token)?;
+
         if total <= 0 {
             return Err(PaymentError::NoRevenue);
         }
@@ -878,7 +896,7 @@ impl PaymentsContract {
                     let pid = payment_ids.get(j).ok_or(PaymentError::PaymentNotFound)?;
                     let payment = storage::get_payment(&env, pid)?;
                     if payment.status == PaymentStatus::Held && payment.token == token_address {
-                        total += payment.amount;
+                        total += payment.amount - payment.refunded_amount;
                         payments_to_release.push_back(payment);
                     }
                 }

@@ -161,7 +161,7 @@ fn test_multi_token_refund_updates_only_the_paid_token_bucket() {
         &PaymentPrivacy::Standard,
     );
 
-    client.refund(&admin, &payment_id1);
+    client.refund(&admin, &payment_id1, &None);
 
     assert_eq!(client.get_event_token_revenue(&event_id, &token1), 0);
     assert_eq!(client.get_event_token_revenue(&event_id, &token2), amount2);

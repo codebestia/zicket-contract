@@ -664,7 +664,7 @@ fn test_multiple_withdrawals_tracked() {
         &PaymentPrivacy::Standard,
     );
     let _not_admin = Address::generate(&env);
-    let result = client.try_refund(&_not_admin, &payment_id);
+    let result = client.try_refund(&_not_admin, &payment_id, &None);
     assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
 }
 
@@ -710,7 +710,7 @@ fn test_refund_after_withdrawal() {
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Completed);
     client.withdraw(&organizer, &event_id);
 
-    let result = client.try_refund(&admin, &payment_id);
+    let result = client.try_refund(&admin, &payment_id, &None);
     assert_eq!(
         result.err(),
         Some(Ok(PaymentError::PaymentAlreadyProcessed))
@@ -837,7 +837,7 @@ fn test_mixed_refund_then_withdraw() {
     );
 
     // Refund payment 2
-    client.refund(&admin, &pid2);
+    client.refund(&admin, &pid2, &None);
     assert_eq!(client.get_event_revenue(&event_id), amount1 + amount3);
     assert_eq!(token_client.balance(&payer2), amount2);
 
@@ -895,7 +895,7 @@ fn test_refund_reduces_revenue_correctly() {
 
     assert_eq!(client.get_event_revenue(&event_id), amount1 + amount2);
 
-    client.refund(&admin, &pid1);
+    client.refund(&admin, &pid1, &None);
     assert_eq!(client.get_event_revenue(&event_id), amount2);
 }
 
@@ -1462,7 +1462,7 @@ fn test_refund_unauthorized() {
         &token,
         &PaymentPrivacy::Standard,
     );
-    let result = client.try_refund(&_not_admin, &payment_id);
+    let result = client.try_refund(&_not_admin, &payment_id, &None);
     assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
 }
 
@@ -1502,7 +1502,7 @@ fn test_refund_nonexistent_payment() {
     env.mock_all_auths();
 
     let (admin, _token, client, _, _, _) = setup_contract_with_token(&env);
-    let result = client.try_refund(&admin, &999);
+    let result = client.try_refund(&admin, &999, &None);
     assert_eq!(result.err(), Some(Ok(PaymentError::PaymentNotFound)));
 }
 
@@ -1678,7 +1678,7 @@ fn test_refund_on_cancelled_event_succeeds() {
     );
 
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Cancelled);
-    client.refund(&admin, &payment_id);
+    client.refund(&admin, &payment_id, &None);
 
     let payment = client.get_payment(&payment_id);
     assert_eq!(payment.status, PaymentStatus::Refunded);
@@ -2122,7 +2122,6 @@ fn test_platform_revenue_accumulates_across_withdrawals() {
     assert_eq!(client.get_platform_revenue(&event_id), fee_per_cycle * 2);
 }
 
-// ===== Replay Protection Tests =====
 
 #[test]
 fn test_replay_attack_rejected_detailed() {
@@ -2208,4 +2207,96 @@ fn test_optional_nonce_success() {
 
     let owner_tickets = client.get_owner_tickets(&payer);
     assert_eq!(owner_tickets.len(), 2);
+}
+
+#[test]
+fn test_partial_refund_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _, token_contract, _) = setup_contract_with_token(&env);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+
+    set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
+
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    // Initial revenue
+    assert_eq!(client.get_event_revenue(&event_id), amount);
+
+    // 1. Partial refund 30%
+    let partial_1 = 30_000_000i128;
+    client.refund(&admin, &payment_id, &Some(partial_1));
+
+    assert_eq!(token_client.balance(&payer), partial_1);
+    assert_eq!(client.get_event_revenue(&event_id), amount - partial_1);
+
+    let payment = client.get_payment(&payment_id);
+    assert_eq!(payment.refunded_amount, partial_1);
+    assert_eq!(payment.status, PaymentStatus::Held);
+
+    // 2. Partial refund another 20%
+    let partial_2 = 20_000_000i128;
+    client.refund(&admin, &payment_id, &Some(partial_2));
+
+    assert_eq!(token_client.balance(&payer), partial_1 + partial_2);
+    assert_eq!(
+        client.get_event_revenue(&event_id),
+        amount - partial_1 - partial_2
+    );
+
+    // 3. Full refund remaining (passing None)
+    client.refund(&admin, &payment_id, &None);
+
+    assert_eq!(token_client.balance(&payer), amount);
+    assert_eq!(client.get_event_revenue(&event_id), 0);
+
+    let final_payment = client.get_payment(&payment_id);
+    assert_eq!(final_payment.refunded_amount, amount);
+    assert_eq!(final_payment.status, PaymentStatus::Refunded);
+}
+
+#[test]
+fn test_partial_refund_exceeds_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _, token_contract, _) = setup_contract_with_token(&env);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+
+    set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
+
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    // Try to refund more than original amount
+    let result = client.try_refund(&admin, &payment_id, &Some(amount + 1));
+    assert!(result.is_err());
 }
