@@ -310,10 +310,16 @@ pub fn get_payer_payments(env: &Env, payer: &Address) -> Vec<u64> {
 
 /// Get the total revenue for an event.
 pub fn get_event_revenue(env: &Env, event_id: &Symbol) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::EventRevenue(event_id.clone()))
-        .unwrap_or(0)
+    let tokens = get_event_tokens(env, event_id);
+    let mut total = 0i128;
+
+    for index in 0..tokens.len() {
+        if let Some(token_address) = tokens.get(index) {
+            total += get_event_token_revenue(env, event_id, &token_address);
+        }
+    }
+
+    total
 }
 
 /// Add to the total revenue for an event.
@@ -377,6 +383,13 @@ pub fn get_withdrawal_history(env: &Env, event_id: &Symbol) -> Vec<crate::types:
 pub fn reset_event_revenue(env: &Env, event_id: &Symbol) {
     let key = DataKey::EventRevenue(event_id.clone());
     env.storage().persistent().set(&key, &0i128);
+
+    let tokens = get_event_tokens(env, event_id);
+    for index in 0..tokens.len() {
+        if let Some(token_address) = tokens.get(index) {
+            set_event_token_revenue(env, event_id, &token_address, 0);
+        }
+    }
 }
 
 pub fn set_emission_privacy(env: &Env, event_id: &Symbol, level: &PrivacyLevel) {
