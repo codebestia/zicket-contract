@@ -68,6 +68,16 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
         params.is_verified,
     )?;
 
+    if let Some(config) = storage::get_event_config(&env, &params.event_id) {
+        if config.max_tickets_per_user > 0 {
+            let current_tickets =
+                storage::get_user_event_tickets(&env, &params.event_id, &params.payer);
+            if current_tickets >= config.max_tickets_per_user {
+                return Err(PaymentError::MaxTicketsReached);
+            }
+        }
+    }
+
     if let Some(status) = storage::get_event_status(&env, &params.event_id) {
         if matches!(status, EventStatus::Completed | EventStatus::Cancelled) {
             return Err(PaymentError::EventNotActive);
@@ -97,9 +107,6 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     storage::add_event_payment(&env, &params.event_id, payment_id);
     storage::add_payer_payment(&env, &params.payer, payment_id);
     storage::set_nonce(&env, &params.payer, params.nonce);
-    storage::add_event_revenue(&env, &params.event_id, params.amount);
-
-    // Track token-specific revenue
     storage::add_event_token_revenue(&env, &params.event_id, &params.token_address, params.amount);
     storage::add_event_token(&env, &params.event_id, &params.token_address);
 
@@ -129,6 +136,7 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     };
     storage::save_ticket(&env, &ticket);
     storage::add_owner_ticket(&env, &payment.payer, ticket_id);
+    storage::increment_user_event_tickets(&env, &params.event_id, &params.payer);
     events::emit_ticket_issued(
         &env,
         ticket_id,
@@ -139,6 +147,29 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     );
 
     Ok(payment_id)
+}
+
+fn collect_held_payments_for_token(
+    env: &Env,
+    event_id: &Symbol,
+    token_address: &Address,
+) -> Result<(i128, soroban_sdk::Vec<PaymentRecord>), PaymentError> {
+    let payment_ids = storage::get_event_payments(env, event_id);
+    let mut total = 0i128;
+    let mut payments = soroban_sdk::Vec::new(env);
+
+    for index in 0..payment_ids.len() {
+        let payment_id = payment_ids
+            .get(index)
+            .ok_or(PaymentError::PaymentNotFound)?;
+        let payment = storage::get_payment(env, payment_id)?;
+        if payment.status == PaymentStatus::Held && payment.token == *token_address {
+            total += payment.amount;
+            payments.push_back(payment);
+        }
+    }
+
+    Ok((total, payments))
 }
 
 #[contractimpl]
@@ -291,6 +322,7 @@ impl PaymentsContract {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn sync_event_config(
         env: Env,
         event_contract: Address,
@@ -299,6 +331,7 @@ impl PaymentsContract {
         payout_token: Address,
         allow_anonymous: bool,
         requires_verification: bool,
+        max_tickets_per_user: u32,
     ) -> Result<(), PaymentError> {
         if event_contract != storage::get_event_contract(&env)? {
             return Err(PaymentError::Unauthorized);
@@ -327,6 +360,7 @@ impl PaymentsContract {
                 payout_token,
                 allow_anonymous,
                 requires_verification,
+                max_tickets_per_user,
             },
         );
 
@@ -358,10 +392,6 @@ impl PaymentsContract {
 
         payment.status = PaymentStatus::Refunded;
         storage::update_payment(&env, &payment)?;
-
-        // Update both general and token-specific revenue
-        let revenue = storage::get_event_revenue(&env, &payment.event_id);
-        storage::set_event_revenue(&env, &payment.event_id, revenue - payment.amount);
 
         let token_revenue =
             storage::get_event_token_revenue(&env, &payment.event_id, &payment.token);
@@ -398,25 +428,13 @@ impl PaymentsContract {
         }
 
         let payout_token = storage::get_event_payout_token(&env, &event_id)?;
-        let revenue = storage::get_event_revenue(&env, &event_id);
+        let revenue = storage::get_event_token_revenue(&env, &event_id, &payout_token);
         if revenue <= 0 {
             return Err(PaymentError::NoRevenue);
         }
 
-        let payment_ids = storage::get_event_payments(&env, &event_id);
-
-        let mut total: i128 = 0;
-        let mut payments_to_release: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::Vec::new(&env);
-
-        for i in 0..payment_ids.len() {
-            let pid = payment_ids.get(i).ok_or(PaymentError::PaymentNotFound)?;
-            let payment = storage::get_payment(&env, pid)?;
-            if payment.status == PaymentStatus::Held {
-                total += payment.amount;
-                payments_to_release.push_back(payment);
-            }
-        }
-
+        let (total, payments_to_release) =
+            collect_held_payments_for_token(&env, &event_id, &payout_token)?;
         if total <= 0 {
             return Err(PaymentError::NoRevenue);
         }
@@ -454,7 +472,7 @@ impl PaymentsContract {
             storage::update_payment(&env, &payment)?;
         }
 
-        storage::set_event_revenue(&env, &event_id, 0);
+        storage::set_event_token_revenue(&env, &event_id, &payout_token, 0);
 
         events::emit_revenue_withdrawn(
             &env,
@@ -531,34 +549,32 @@ impl PaymentsContract {
             return Err(PaymentError::EscrowNotExpired);
         }
 
-        let token_address = storage::get_accepted_token(&env)?;
-        let token_client = token::Client::new(&env, &token_address);
-        let payment_ids = storage::get_event_payments(&env, &event_id);
+        let tokens = storage::get_event_tokens(&env, &event_id);
+        let mut total = 0i128;
 
-        let mut total: i128 = 0;
-        let mut to_release: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::Vec::new(&env);
+        for i in 0..tokens.len() {
+            if let Some(token_address) = tokens.get(i) {
+                let (token_total, to_release) =
+                    collect_held_payments_for_token(&env, &event_id, &token_address)?;
+                if token_total > 0 {
+                    let token_client = token::Client::new(&env, &token_address);
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &meta.organizer,
+                        &token_total,
+                    );
 
-        for i in 0..payment_ids.len() {
-            if let Some(pid) = payment_ids.get(i) {
-                let payment = storage::get_payment(&env, pid)?;
-                if payment.status == PaymentStatus::Held {
-                    total += payment.amount;
-                    to_release.push_back(payment);
+                    for j in 0..to_release.len() {
+                        if let Some(mut payment) = to_release.get(j) {
+                            payment.status = PaymentStatus::Released;
+                            storage::update_payment(&env, &payment)?;
+                        }
+                    }
+
+                    storage::set_event_token_revenue(&env, &event_id, &token_address, 0);
+                    total += token_total;
                 }
             }
-        }
-
-        if total > 0 {
-            token_client.transfer(&env.current_contract_address(), &meta.organizer, &total);
-
-            for i in 0..to_release.len() {
-                if let Some(mut payment) = to_release.get(i) {
-                    payment.status = PaymentStatus::Released;
-                    storage::update_payment(&env, &payment)?;
-                }
-            }
-
-            storage::set_event_revenue(&env, &event_id, 0);
         }
 
         meta.auto_released = true;
@@ -576,7 +592,8 @@ impl PaymentsContract {
         let admin = storage::get_admin(&env)?;
         admin.require_auth();
 
-        let revenue = storage::get_event_revenue(&env, &event_id);
+        let token_address = storage::get_accepted_token(&env)?;
+        let revenue = storage::get_event_token_revenue(&env, &event_id, &token_address);
         if revenue <= 0 {
             return Err(PaymentError::InvalidAmount);
         }
@@ -586,7 +603,6 @@ impl PaymentsContract {
         let fee_amount = revenue * fee_bps / 10_000;
         let organizer_amount = revenue - fee_amount;
 
-        let token_address = storage::get_accepted_token(&env)?;
         let token_client = token::Client::new(&env, &token_address);
 
         // Transfer organizer share
@@ -615,7 +631,7 @@ impl PaymentsContract {
         }
 
         // Update revenue tracking
-        storage::reset_event_revenue(&env, &event_id);
+        storage::set_event_token_revenue(&env, &event_id, &token_address, 0);
 
         // Record withdrawal history
         let record = WithdrawalRecord {

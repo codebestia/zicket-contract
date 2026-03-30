@@ -20,6 +20,7 @@ pub struct EventConfig {
     pub payout_token: Address,
     pub allow_anonymous: bool,
     pub requires_verification: bool,
+    pub max_tickets_per_user: u32,
 }
 
 #[contracttype]
@@ -48,6 +49,7 @@ pub enum DataKey {
     EscrowMeta(Symbol),
     ProcessedNonce(Address, u64),
     ContractVersion,
+    UserEventTickets(Symbol, Address),
 }
 
 pub fn set_event_status(env: &Env, event_id: &Symbol, status: &EventStatus) {
@@ -313,10 +315,16 @@ pub fn get_payer_payments(env: &Env, payer: &Address) -> Vec<u64> {
 
 /// Get the total revenue for an event.
 pub fn get_event_revenue(env: &Env, event_id: &Symbol) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&DataKey::EventRevenue(event_id.clone()))
-        .unwrap_or(0)
+    let tokens = get_event_tokens(env, event_id);
+    let mut total = 0i128;
+
+    for index in 0..tokens.len() {
+        if let Some(token_address) = tokens.get(index) {
+            total += get_event_token_revenue(env, event_id, &token_address);
+        }
+    }
+
+    total
 }
 
 /// Add to the total revenue for an event.
@@ -380,6 +388,13 @@ pub fn get_withdrawal_history(env: &Env, event_id: &Symbol) -> Vec<crate::types:
 pub fn reset_event_revenue(env: &Env, event_id: &Symbol) {
     let key = DataKey::EventRevenue(event_id.clone());
     env.storage().persistent().set(&key, &0i128);
+
+    let tokens = get_event_tokens(env, event_id);
+    for index in 0..tokens.len() {
+        if let Some(token_address) = tokens.get(index) {
+            set_event_token_revenue(env, event_id, &token_address, 0);
+        }
+    }
 }
 
 /// Get the platform fee in basis points (0-10000).
@@ -590,4 +605,18 @@ pub fn get_event_tokens(env: &Env, event_id: &Symbol) -> Vec<Address> {
         .persistent()
         .get(&DataKey::EventTokens(event_id.clone()))
         .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn get_user_event_tickets(env: &Env, event_id: &Symbol, user: &Address) -> u32 {
+    let key = DataKey::UserEventTickets(event_id.clone(), user.clone());
+    env.storage().persistent().get(&key).unwrap_or(0)
+}
+
+pub fn increment_user_event_tickets(env: &Env, event_id: &Symbol, user: &Address) {
+    let current = get_user_event_tickets(env, event_id, user);
+    let key = DataKey::UserEventTickets(event_id.clone(), user.clone());
+    env.storage().persistent().set(&key, &(current + 1));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
 }
