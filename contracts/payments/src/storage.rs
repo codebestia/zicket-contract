@@ -210,13 +210,17 @@ pub fn get_next_ticket_id(env: &Env) -> u64 {
     next_id
 }
 
-/// Save a payment record to storage
-pub fn save_payment(env: &Env, payment: &PaymentRecord) {
+/// Save a payment record to storage. Returns error if ID already exists.
+pub fn save_payment(env: &Env, payment: &PaymentRecord) -> Result<(), PaymentError> {
     let key = DataKey::Payment(payment.payment_id);
+    if env.storage().persistent().has(&key) {
+        return Err(PaymentError::PaymentAlreadyProcessed);
+    }
     env.storage().persistent().set(&key, payment);
     env.storage()
         .persistent()
         .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+    Ok(())
 }
 
 /// Get a payment record by ID
@@ -227,13 +231,17 @@ pub fn get_payment(env: &Env, payment_id: u64) -> Result<PaymentRecord, PaymentE
         .ok_or(PaymentError::PaymentNotFound)
 }
 
-/// Save a ticket record to storage.
-pub fn save_ticket(env: &Env, ticket: &Ticket) {
+/// Save a ticket record to storage. Returns error if ID already exists.
+pub fn save_ticket(env: &Env, ticket: &Ticket) -> Result<(), PaymentError> {
     let key = DataKey::Ticket(ticket.ticket_id);
+    if env.storage().persistent().has(&key) {
+        return Err(PaymentError::DuplicateRequest);
+    }
     env.storage().persistent().set(&key, ticket);
     env.storage()
         .persistent()
         .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
+    Ok(())
 }
 
 /// Get a ticket record by ID.
@@ -348,14 +356,14 @@ pub fn set_event_revenue(env: &Env, event_id: &Symbol, amount: i128) {
 
 /// Update a payment record in storage.
 pub fn update_payment(env: &Env, payment: &PaymentRecord) -> Result<(), PaymentError> {
-    if !env
-        .storage()
-        .persistent()
-        .has(&DataKey::Payment(payment.payment_id))
-    {
+    let key = DataKey::Payment(payment.payment_id);
+    if !env.storage().persistent().has(&key) {
         return Err(PaymentError::PaymentNotFound);
     }
-    save_payment(env, payment);
+    env.storage().persistent().set(&key, payment);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, 60 * 60 * 24 * 30, 60 * 60 * 24 * 30 * 2);
     Ok(())
 }
 
