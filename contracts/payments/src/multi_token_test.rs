@@ -25,7 +25,8 @@ fn setup_contract_with_two_tokens(
     let token2 = token2_contract.address();
 
     let event_contract_id = env.register(MockEventContract, ());
-    client.initialize(&admin, &token1, &event_contract_id);
+    let platform_wallet = Address::generate(env);
+    client.initialize(&admin, &token1, &0, &platform_wallet, &event_contract_id);
 
     let token1_client = token::StellarAssetClient::new(env, &token1);
     let token2_client = token::StellarAssetClient::new(env, &token2);
@@ -196,6 +197,7 @@ fn test_withdraw_uses_only_the_event_payout_token_revenue() {
         &token1,
         &true,
         &false,
+        &0,
     );
     client.pay_for_ticket(
         &1,
