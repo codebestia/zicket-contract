@@ -408,7 +408,7 @@ impl EventContract {
             let mut refund_count = 0;
 
             for payment_id in payment_ids.iter() {
-                payments_client.refund(&admin, &payment_id);
+                payments_client.refund(&admin, &payment_id, &None);
                 refund_count += 1;
             }
 
