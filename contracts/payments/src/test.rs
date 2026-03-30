@@ -2121,3 +2121,91 @@ fn test_platform_revenue_accumulates_across_withdrawals() {
     // Platform revenue should accumulate
     assert_eq!(client.get_platform_revenue(&event_id), fee_per_cycle * 2);
 }
+
+// ===== Replay Protection Tests =====
+
+#[test]
+fn test_replay_attack_rejected_detailed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _, token_contract, _) = setup_contract_with_token(&env);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &(amount * 2));
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &(amount * 2));
+
+    set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
+
+    let nonce = 101u64;
+
+    // First attempt succeeds
+    client.pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    // Second attempt with same nonce fails with DuplicateRequest
+    let result = client.try_pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    assert_eq!(result.err(), Some(Ok(PaymentError::DuplicateRequest)));
+}
+
+#[test]
+fn test_optional_nonce_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _, token_contract, _) = setup_contract_with_token(&env);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &(amount * 2));
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &(amount * 2));
+
+    set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
+
+    let nonce = 0u64; // Optional nonce
+
+    // First attempt succeeds
+    client.pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    // Second attempt with nonce 0 also succeeds (skip deduplication)
+    client.pay_for_ticket(
+        &nonce,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    let owner_tickets = client.get_owner_tickets(&payer);
+    assert_eq!(owner_tickets.len(), 2);
+}

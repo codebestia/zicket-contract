@@ -53,7 +53,7 @@ fn validate_payment_privacy(
 fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> {
     params.payer.require_auth();
 
-    if storage::has_nonce(&env, &params.payer, params.nonce) {
+    if params.nonce != 0 && storage::has_nonce(&env, &params.payer, params.nonce) {
         return Err(PaymentError::DuplicateRequest);
     }
 
@@ -103,10 +103,15 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
         privacy_level: params.privacy_level.clone(),
     };
 
-    storage::save_payment(&env, &payment);
+    storage::save_payment(&env, &payment)?;
     storage::add_event_payment(&env, &params.event_id, payment_id);
     storage::add_payer_payment(&env, &params.payer, payment_id);
-    storage::set_nonce(&env, &params.payer, params.nonce);
+    if params.nonce != 0 {
+        storage::set_nonce(&env, &params.payer, params.nonce);
+    }
+    storage::add_event_revenue(&env, &params.event_id, params.amount);
+
+    // Track token-specific revenue
     storage::add_event_token_revenue(&env, &params.event_id, &params.token_address, params.amount);
     storage::add_event_token(&env, &params.event_id, &params.token_address);
 
@@ -134,7 +139,7 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
         owner: payment.payer.clone(),
         payment_id,
     };
-    storage::save_ticket(&env, &ticket);
+    storage::save_ticket(&env, &ticket)?;
     storage::add_owner_ticket(&env, &payment.payer, ticket_id);
     storage::increment_user_event_tickets(&env, &params.event_id, &params.payer);
     events::emit_ticket_issued(
