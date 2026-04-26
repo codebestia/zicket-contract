@@ -184,6 +184,7 @@ fn bind_event(
         &true,
         &false,
         &0,
+        &0,
     );
 }
 
@@ -1559,6 +1560,7 @@ fn test_sync_event_config_invalid_payout_token_rejected() {
         &true,
         &false,
         &0,
+        &0,
     );
     assert_eq!(result.err(), Some(Ok(PaymentError::InvalidPayoutToken)));
 
@@ -1791,6 +1793,7 @@ fn test_max_tickets_per_user_enforcement() {
         &true,
         &false,
         &2,
+        &0,
     );
 
     // Payer 1: First ticket -> Success
@@ -1840,6 +1843,73 @@ fn test_max_tickets_per_user_enforcement() {
 
     assert_eq!(client.get_owner_tickets(&payer1).len(), 2);
     assert_eq!(client.get_owner_tickets(&payer2).len(), 1);
+}
+
+#[test]
+fn test_event_supply_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _contract_id, token_contract, event_contract_id) =
+        setup_contract_with_token_and_event(&env);
+    let payer1 = Address::generate(&env);
+    let payer2 = Address::generate(&env);
+    let payer3 = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let event_id = symbol_short!("SUPPLY");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &(amount * 3));
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer1, &amount);
+    token_client.transfer(&admin, &payer2, &amount);
+    token_client.transfer(&admin, &payer3, &amount);
+
+    client.sync_event_config(
+        &event_contract_id,
+        &event_id,
+        &organizer,
+        &token,
+        &true,
+        &false,
+        &0,
+        &2,
+    );
+
+    client.pay_for_ticket(
+        &1,
+        &payer1,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    client.pay_for_ticket(
+        &1,
+        &payer2,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    let config = client.get_event_config(&event_id);
+    assert_eq!(config.max_supply, 2);
+    assert_eq!(config.sold_count, 2);
+
+    let result = client.try_pay_for_ticket(
+        &1,
+        &payer3,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    assert_eq!(result.err(), Some(Ok(PaymentError::EventSoldOut)));
+    assert_eq!(token_client.balance(&payer3), amount);
 }
 
 // ===== Platform Fee Tests =====

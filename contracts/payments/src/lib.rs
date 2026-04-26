@@ -69,6 +69,10 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     )?;
 
     if let Some(config) = storage::get_event_config(&env, &params.event_id) {
+        if config.max_supply > 0 && config.sold_count >= config.max_supply {
+            return Err(PaymentError::EventSoldOut);
+        }
+
         if config.max_tickets_per_user > 0 {
             let current_tickets =
                 storage::get_user_event_tickets(&env, &params.event_id, &params.payer);
@@ -143,6 +147,9 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     storage::save_ticket(&env, &ticket)?;
     storage::add_owner_ticket(&env, &payment.payer, ticket_id);
     storage::increment_user_event_tickets(&env, &params.event_id, &params.payer);
+    if storage::get_event_config(&env, &params.event_id).is_some() {
+        storage::increment_event_sold_count(&env, &params.event_id)?;
+    }
     events::emit_ticket_issued(
         &env,
         ticket_id,
@@ -177,6 +184,7 @@ fn collect_held_payments_for_token(
 
     Ok((total, payments))
 }
+
 
 #[contractimpl]
 impl PaymentsContract {
@@ -338,6 +346,7 @@ impl PaymentsContract {
         allow_anonymous: bool,
         requires_verification: bool,
         max_tickets_per_user: u32,
+        max_supply: u32,
     ) -> Result<(), PaymentError> {
         if event_contract != storage::get_event_contract(&env)? {
             return Err(PaymentError::Unauthorized);
@@ -349,14 +358,18 @@ impl PaymentsContract {
             return Err(PaymentError::InvalidPayoutToken);
         }
 
-        if let Some(existing_config) = storage::get_event_config(&env, &event_id) {
-            if existing_config.organizer != organizer {
-                return Err(PaymentError::InvalidOrganizer);
-            }
-            if existing_config.payout_token != payout_token {
-                return Err(PaymentError::InvalidPayoutToken);
-            }
-        }
+        let existing_sold_count =
+            if let Some(existing_config) = storage::get_event_config(&env, &event_id) {
+                if existing_config.organizer != organizer {
+                    return Err(PaymentError::InvalidOrganizer);
+                }
+                if existing_config.payout_token != payout_token {
+                    return Err(PaymentError::InvalidPayoutToken);
+                }
+                existing_config.sold_count
+            } else {
+                0
+            };
 
         storage::set_event_config(
             &env,
@@ -367,6 +380,8 @@ impl PaymentsContract {
                 allow_anonymous,
                 requires_verification,
                 max_tickets_per_user,
+                max_supply,
+                sold_count: existing_sold_count,
             },
         );
 

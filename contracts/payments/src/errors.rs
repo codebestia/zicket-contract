@@ -31,4 +31,5 @@ pub enum PaymentError {
     MigrationFailed = 25,
     UnsupportedVersion = 26,
     MaxTicketsReached = 27,
+    EventSoldOut = 28,
 }
