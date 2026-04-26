@@ -33,4 +33,5 @@ pub enum PaymentError {
     MaxTicketsReached = 27,
     EventSoldOut = 28,
     NonceRequired = 29,
+    ContractPaused = 30,
 }

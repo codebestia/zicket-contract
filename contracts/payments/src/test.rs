@@ -87,6 +87,79 @@ fn test_get_event_revenue_initial() {
     assert_eq!(revenue, 0);
 }
 
+#[test]
+fn test_pause_unpause_and_blocks_sensitive_actions() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, token, client, _contract_id, token_contract, _) = setup_contract_with_token(&env);
+    let payer = Address::generate(&env);
+    let event_id = symbol_short!("EVENT1");
+    let amount = 100_000_000i128;
+
+    token_contract.mint(&admin, &amount);
+    let token_client = token::Client::new(&env, &token);
+    token_client.transfer(&admin, &payer, &amount);
+
+    assert!(!client.is_paused());
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let status_result = client.try_set_event_status(&admin, &event_id, &EventStatus::Active);
+    assert_eq!(status_result.err(), Some(Ok(PaymentError::ContractPaused)));
+
+    let payment_result = client.try_pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+    assert_eq!(payment_result.err(), Some(Ok(PaymentError::ContractPaused)));
+    assert_eq!(token_client.balance(&payer), amount);
+
+    let wallet = Address::generate(&env);
+    let fee_result = client.try_set_platform_fee(&250, &wallet);
+    assert_eq!(fee_result.err(), Some(Ok(PaymentError::ContractPaused)));
+
+    client.set_paused(&admin, &false);
+    assert!(!client.is_paused());
+    set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
+
+    let payment_id = client.pay_for_ticket(
+        &1,
+        &payer,
+        &event_id,
+        &amount,
+        &None,
+        &token,
+        &PaymentPrivacy::Standard,
+    );
+
+    client.set_paused(&admin, &true);
+    let refund_result = client.try_refund(&admin, &payment_id, &None);
+    assert_eq!(refund_result.err(), Some(Ok(PaymentError::ContractPaused)));
+    assert_eq!(client.get_payment(&payment_id).status, PaymentStatus::Held);
+}
+
+#[test]
+fn test_pause_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _token, client, _contract_id, _token_contract, _) = setup_contract_with_token(&env);
+    let not_admin = Address::generate(&env);
+
+    let result = client.try_set_paused(&not_admin, &true);
+    assert_eq!(result.err(), Some(Ok(PaymentError::Unauthorized)));
+    assert!(!client.is_paused());
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+}
+
 fn setup_contract_with_token(
     env: &Env,
 ) -> (

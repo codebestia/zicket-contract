@@ -52,6 +52,7 @@ pub enum DataKey {
     ProcessedNonce(Address, u64),
     ContractVersion,
     UserEventTickets(Symbol, Address),
+    Paused,
 }
 
 pub fn set_event_status(env: &Env, event_id: &Symbol, status: &EventStatus) {
@@ -83,6 +84,20 @@ pub fn set_admin(env: &Env, admin: &soroban_sdk::Address) {
         60 * 60 * 24 * 30,
         60 * 60 * 24 * 30 * 2,
     );
+}
+
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().persistent().set(&DataKey::Paused, &paused);
+    env.storage()
+        .persistent()
+        .extend_ttl(&DataKey::Paused, TTL_THRESHOLD, TTL_BUMP);
 }
 
 /// Get the accepted token address from storage.
