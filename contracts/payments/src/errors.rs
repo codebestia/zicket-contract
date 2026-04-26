@@ -32,4 +32,5 @@ pub enum PaymentError {
     UnsupportedVersion = 26,
     MaxTicketsReached = 27,
     EventSoldOut = 28,
+    NonceRequired = 29,
 }

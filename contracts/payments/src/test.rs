@@ -2232,10 +2232,12 @@ fn test_replay_attack_rejected_detailed() {
         &PaymentPrivacy::Standard,
     );
     assert_eq!(result.err(), Some(Ok(PaymentError::DuplicateRequest)));
+    assert_eq!(client.get_owner_tickets(&payer).len(), 1);
+    assert_eq!(token_client.balance(&payer), amount);
 }
 
 #[test]
-fn test_optional_nonce_success() {
+fn test_zero_nonce_rejected() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -2250,10 +2252,9 @@ fn test_optional_nonce_success() {
 
     set_event_status_for_test(&client, &admin, &event_id, &EventStatus::Active);
 
-    let nonce = 0u64; // Optional nonce
+    let nonce = 0u64;
 
-    // First attempt succeeds
-    client.pay_for_ticket(
+    let result = client.try_pay_for_ticket(
         &nonce,
         &payer,
         &event_id,
@@ -2262,20 +2263,10 @@ fn test_optional_nonce_success() {
         &token,
         &PaymentPrivacy::Standard,
     );
+    assert_eq!(result.err(), Some(Ok(PaymentError::NonceRequired)));
 
-    // Second attempt with nonce 0 also succeeds (skip deduplication)
-    client.pay_for_ticket(
-        &nonce,
-        &payer,
-        &event_id,
-        &amount,
-        &None,
-        &token,
-        &PaymentPrivacy::Standard,
-    );
-
-    let owner_tickets = client.get_owner_tickets(&payer);
-    assert_eq!(owner_tickets.len(), 2);
+    assert_eq!(client.get_owner_tickets(&payer).len(), 0);
+    assert_eq!(token_client.balance(&payer), amount * 2);
 }
 
 #[test]

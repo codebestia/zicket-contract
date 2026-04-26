@@ -53,7 +53,11 @@ fn validate_payment_privacy(
 fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> {
     params.payer.require_auth();
 
-    if params.nonce != 0 && storage::has_nonce(&env, &params.payer, params.nonce) {
+    if params.nonce == 0 {
+        return Err(PaymentError::NonceRequired);
+    }
+
+    if storage::has_nonce(&env, &params.payer, params.nonce) {
         return Err(PaymentError::DuplicateRequest);
     }
 
@@ -111,9 +115,7 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     storage::save_payment(&env, &payment)?;
     storage::add_event_payment(&env, &params.event_id, payment_id);
     storage::add_payer_payment(&env, &params.payer, payment_id);
-    if params.nonce != 0 {
-        storage::set_nonce(&env, &params.payer, params.nonce);
-    }
+    storage::set_nonce(&env, &params.payer, params.nonce);
     storage::add_event_revenue(&env, &params.event_id, params.amount);
 
     // Track token-specific revenue
@@ -184,7 +186,6 @@ fn collect_held_payments_for_token(
 
     Ok((total, payments))
 }
-
 
 #[contractimpl]
 impl PaymentsContract {
