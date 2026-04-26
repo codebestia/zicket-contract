@@ -145,7 +145,12 @@ fn create_payment(env: Env, params: PaymentParams) -> Result<u64, PaymentError> 
     );
 
     if let Some(hash) = params.email_hash {
-        events::emit_payment_receipt_requested(&env, payment_id, Some(hash));
+        events::emit_payment_receipt_requested(
+            &env,
+            payment_id,
+            params.event_id.clone(),
+            Some(hash),
+        );
     }
 
     let ticket_id = storage::get_next_ticket_id(&env);
@@ -474,6 +479,7 @@ impl PaymentsContract {
             payment.event_id.clone(),
             payment.payer,
             refund_amt,
+            payment.token.clone(),
             &storage::get_emission_privacy(&env, &payment.event_id),
         );
 
@@ -529,6 +535,7 @@ impl PaymentsContract {
                 event_id.clone(),
                 fee_amount,
                 organizer_amount,
+                payout_token.clone(),
             );
         }
 
@@ -545,8 +552,10 @@ impl PaymentsContract {
         events::emit_revenue_withdrawn(
             &env,
             event_id.clone(),
-            stored_organizer,
+            stored_organizer.clone(),
             organizer_amount,
+            payout_token,
+            stored_organizer,
             &storage::get_emission_privacy(&env, &event_id),
         );
 
@@ -687,6 +696,7 @@ impl PaymentsContract {
                 event_id.clone(),
                 fee_amount,
                 organizer_amount,
+                token_address.clone(),
             );
         }
 
@@ -711,6 +721,16 @@ impl PaymentsContract {
             organizer: to.clone(),
         };
         storage::add_withdrawal_record(&env, &event_id, &record);
+
+        events::emit_revenue_withdrawn(
+            &env,
+            event_id.clone(),
+            to.clone(),
+            organizer_amount,
+            token_address,
+            to,
+            &storage::get_emission_privacy(&env, &event_id),
+        );
 
         Ok(())
     }
@@ -737,7 +757,7 @@ impl PaymentsContract {
         storage::set_platform_fee_bps(&env, fee_bps);
         storage::set_platform_wallet(&env, &wallet);
 
-        events::emit_platform_fee_updated(&env, old_bps, fee_bps);
+        events::emit_platform_fee_updated(&env, admin, old_bps, fee_bps);
 
         Ok(())
     }
@@ -776,7 +796,13 @@ impl PaymentsContract {
 
         storage::reset_platform_revenue(&env, &event_id);
 
-        events::emit_platform_revenue_withdrawn(&env, event_id, platform_revenue, platform_wallet);
+        events::emit_platform_revenue_withdrawn(
+            &env,
+            event_id,
+            platform_revenue,
+            token_address,
+            platform_wallet,
+        );
 
         Ok(())
     }
@@ -907,8 +933,10 @@ impl PaymentsContract {
         events::emit_revenue_withdrawn(
             &env,
             event_id.clone(),
-            organizer,
+            organizer.clone(),
             total,
+            token_address,
+            organizer,
             &storage::get_emission_privacy(&env, &event_id),
         );
 
@@ -972,6 +1000,8 @@ impl PaymentsContract {
                         event_id.clone(),
                         organizer.clone(),
                         total,
+                        token_address.clone(),
+                        organizer.clone(),
                         &storage::get_emission_privacy(&env, &event_id),
                     );
                 }
